@@ -26,6 +26,25 @@ type ErrorEnvelope struct {
 	Error  ErrorBody `json:"error"`
 }
 
+const CodeServerBusy = "server_busy"
+
+// BusyRefusal identifies a capacity refusal and names the responsible host.
+func BusyRefusal(status int, body []byte, host string) (string, bool) {
+	if status != http.StatusTooManyRequests {
+		return "", false
+	}
+	var envelope ErrorEnvelope
+	_ = json.Unmarshal(body, &envelope)
+	switch strings.TrimSpace(envelope.Error.Code) {
+	case CodeServerBusy:
+		return envelope.Error.Message, true
+	case "", "admission_limited":
+		return host + " is busy; try again in a minute", true
+	default:
+		return "", false
+	}
+}
+
 // APIError is the Go representation that handlers return; satisfies Huma's
 // StatusError interface so the framework serializes the envelope verbatim.
 // Plan 1 §4.6 fixes the public name as APIError; renaming would break the

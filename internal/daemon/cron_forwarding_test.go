@@ -490,3 +490,26 @@ func TestCronSpokeForwardPreservesUIDPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, initial.Body.Job.DefinitionEventUID, current.DefinitionEventUID)
 }
+
+func TestCronSpokeForwardBusyHub(t *testing.T) {
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte("Rate exceeded."))
+	}))
+	t.Cleanup(hub.Close)
+	f := newCronForwardFixture(t, func(f *cronForwardFixture, _ *daemon.ServerConfig) {
+		binding, err := f.spoke.DB.FederationBindingByProject(t.Context(), f.sp.ID)
+		require.NoError(t, err)
+		binding.HubURL = hub.URL
+		_, err = f.spoke.DB.UpsertFederationBinding(t.Context(), binding)
+		require.NoError(t, err)
+		credential := f.credential
+		credential.HubURL = hub.URL
+		require.NoError(t, config.WriteFederationCredential(f.sp.UID, credential))
+	})
+	resp, raw := f.put(t, cronHTTPUID(t), "")
+	assertAPIError(t, resp.StatusCode, raw, 429, "server_busy")
+	require.Contains(t, string(raw), "127.0.0.1 is busy")
+	require.Equal(t, "2", resp.Header.Get("Retry-After"))
+}

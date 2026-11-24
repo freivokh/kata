@@ -544,6 +544,7 @@ func fetchFederationRebindMetadata(
 			return api.ProjectFederationBody{}, err
 		}
 	}
+	observeHubBusy(httpClient)
 	apiClient, err := generated.NewDefaultClient(hubURL, runtime.WithHTTPClient(boundedProbeDoer{client: httpClient, limit: federationRebindResponseLimit}))
 	if err != nil {
 		return api.ProjectFederationBody{}, federationReplicaError(ErrFederationReplicaInvalidInput, "build replacement hub metadata request", "")

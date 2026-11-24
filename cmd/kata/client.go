@@ -226,6 +226,7 @@ func httpClientFor(ctx context.Context, baseURL string) (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.RetryBusy(hc)
 	return markDaemonHTTPClient(baseURL, hc)
 }
 
@@ -236,6 +237,7 @@ func httpClientForResolved(ctx context.Context, resolved client.ResolvedDaemon) 
 	if err != nil {
 		return nil, err
 	}
+	client.RetryBusy(hc)
 	return markDaemonHTTPClient(resolved.BaseURL, hc)
 }
 
@@ -255,6 +257,7 @@ func longRunningClientFor(ctx context.Context, baseURL string) (*http.Client, er
 	if err != nil {
 		return nil, err
 	}
+	client.RetryBusy(hc)
 	return markDaemonHTTPClient(baseURL, hc)
 }
 
@@ -263,6 +266,7 @@ func longRunningClientForResolved(ctx context.Context, resolved client.ResolvedD
 	if err != nil {
 		return nil, err
 	}
+	client.RetryBusy(hc)
 	return markDaemonHTTPClient(resolved.BaseURL, hc)
 }
 

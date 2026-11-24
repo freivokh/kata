@@ -268,10 +268,15 @@ func hubAdminClient(ctx context.Context, a hubAdminAuth) (*http.Client, error) {
 	// client is unauthenticated — never fall back to NewHTTPClient, which
 	// would attach the local daemon's global KATA_AUTH_TOKEN/[auth].token to
 	// the (stored, potentially hostile) hub URL.
-	return clientpkg.NewHTTPClientForTarget(ctx, a.url,
+	hc, err := clientpkg.NewHTTPClientForTarget(ctx, a.url,
 		clientpkg.TargetAuth{
 			Token:               strings.TrimSpace(a.token),
 			AllowInsecure:       a.allowInsecure,
 			TrustPrivateNetwork: auth.TrustPrivateNetwork,
 		}, opts)
+	if err != nil {
+		return nil, err
+	}
+	clientpkg.RetryBusy(hc)
+	return hc, nil
 }

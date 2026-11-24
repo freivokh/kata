@@ -3520,3 +3520,60 @@ func TestFederationEnrollCLISignedJoinBindsSpoke(t *testing.T) {
 	assert.Equal(t, hubProject.ID, binding.HubProjectID)
 	assert.Equal(t, hubProject.UID, binding.HubProjectUID)
 }
+
+func TestFederationCloseBusyHub(t *testing.T) {
+	for _, mode := range []string{"recovers", "busy", "rule"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("KATA_HTTP_TIMEOUT", "2s")
+			env, dir, pid, ref := setupWorkspaceWithIssue(t, "close target")
+			project, err := env.DB.ProjectByID(t.Context(), pid)
+			require.NoError(t, err)
+			var calls atomic.Int32
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				call := calls.Add(1)
+				if mode == "rule" {
+					w.WriteHeader(429)
+					_, _ = w.Write([]byte(`{"error":{"code":"sibling_throttle","message":"wait for sibling"}}`))
+					return
+				}
+				if mode == "busy" || call == 1 {
+					w.WriteHeader(429)
+					_, _ = w.Write([]byte("Rate exceeded."))
+					return
+				}
+				_ = json.NewEncoder(w).Encode(api.ClaimStatusBody{Held: false, HubNow: time.Now().UTC()})
+			}))
+			t.Cleanup(hub.Close)
+			_, err = env.DB.UpsertFederationBinding(t.Context(), db.FederationBinding{ProjectID: pid, Role: db.FederationRoleSpoke, HubURL: hub.URL, HubProjectID: 99, HubProjectUID: project.UID, PushEnabled: true, Actor: "agent", Enabled: true})
+			require.NoError(t, err)
+			require.NoError(t, config.WriteFederationCredential(project.UID, config.FederationCredential{HubURL: hub.URL, HubProjectID: 99, Token: "test-token", Capabilities: "claim", Actor: "agent"}))
+			_, err = runCmdOutput(t, env, "close", ref, "--workspace", dir, "--done", "--message", "Completed the requested work and checked the result.", "--commit", "abc1234")
+			if mode == "recovers" {
+				require.NoError(t, err)
+			} else {
+				var cliErr *cliError
+				require.ErrorAs(t, err, &cliErr)
+				if mode == "rule" {
+					assert.Equal(t, ExitInternal, cliErr.ExitCode)
+					assert.Contains(t, cliErr.Message, "wait for sibling")
+				} else {
+					assert.Equal(t, kindDaemonUnavail, cliErr.Kind)
+					assert.Equal(t, ExitDaemonUnavail, cliErr.ExitCode)
+					assert.Equal(t, "127.0.0.1 is busy; try again in a minute", cliErr.Message)
+				}
+			}
+			if mode == "rule" {
+				assert.Equal(t, int32(1), calls.Load())
+			} else {
+				assert.Greater(t, calls.Load(), int32(1))
+			}
+			issue, err := env.DB.IssueByShortID(t.Context(), pid, ref, db.IncludeDeletedNo)
+			require.NoError(t, err)
+			if mode == "recovers" {
+				assert.Equal(t, "closed", issue.Status)
+			} else {
+				assert.Equal(t, "open", issue.Status)
+			}
+		})
+	}
+}

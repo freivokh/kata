@@ -89,6 +89,7 @@ func forwardCronJob(ctx context.Context, cfg ServerConfig, projectID int64, uid,
 	if err != nil {
 		return nil, true, cronForwardUnavailable("federation transport is unavailable")
 	}
+	observeHubBusy(client)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	path := fmt.Sprintf("%s/api/v1/projects/%d", bindingOrigin, binding.HubProjectID)
 	var meta api.ProjectFederationBody

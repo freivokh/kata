@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,45 @@ import (
 	"go.kenn.io/kata/internal/federationsigning"
 	"go.kenn.io/kata/internal/federationsigning/signingpolicy"
 )
+
+func TestFederationClientRetryBusySignsEachAttempt(t *testing.T) {
+	t.Setenv("TEST_BUSY_SIGNING_KEY", strings.Repeat("k", 64))
+	var verifier *federationsigning.Verifier
+	var signatures []string
+	hub := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := verifier.Verify(r, 1)
+		require.NoError(t, err)
+		signatures = append(signatures, r.Header.Get("Signature-Input"))
+		if len(signatures) == 1 {
+			w.WriteHeader(429)
+			_, _ = w.Write([]byte("Rate exceeded."))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(api.ProjectFederationBody{ProjectID: 42})
+	}))
+	base := "https://" + hub.Listener.Addr().String()
+	source := signingpolicy.Source{KeyID: "spoke-key", KeyEnv: "TEST_BUSY_SIGNING_KEY", HubURL: base}
+	state := filepath.Join(t.TempDir(), "replay.state")
+	require.NoError(t, federationsigning.InitializeReplayState(state))
+	var err error
+	verifier, err = federationsigning.NewVerifier(base, []signingpolicy.Key{{Source: source, EnrollmentID: 1}}, state)
+	require.NoError(t, err)
+	verifier.SkipStartupForTest()
+	t.Cleanup(func() { require.NoError(t, verifier.Close()) })
+	hub.StartTLS()
+	t.Cleanup(hub.Close)
+	previous := http.DefaultTransport
+	http.DefaultTransport = hub.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	client, err := NewClient(t.Context(), hub.URL, "enrollment-token", clientpkg.Opts{Timeout: 3 * time.Second, FederationSigning: &source})
+	require.NoError(t, err)
+	client.RetryBusy()
+	metadata, err := client.ProjectFederation(t.Context(), 42)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), metadata.ProjectID)
+	require.Len(t, signatures, 2)
+	assert.NotEqual(t, signatures[0], signatures[1])
+}
 
 func TestFederationClientPollProjectEvents(t *testing.T) {
 	var gotAuth string

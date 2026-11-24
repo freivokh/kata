@@ -84,7 +84,7 @@ Kata writes errors to stderr in your selected output mode.
 | 4 | Not found. |
 | 5 | Conflict. |
 | 6 | Confirmation required. |
-| 7 | Daemon unavailable. |
+| 7 | Daemon unavailable or server busy. |
 | 8 | Wait timeout. |
 
 CLI panics exit with code 1 as internal errors, while daemon and background task

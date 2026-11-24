@@ -897,6 +897,7 @@ func newClaimHubClient(
 			return nil, err
 		}
 	}
+	observeHubBusy(httpClient)
 	return &claimHubClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client:  httpClient,

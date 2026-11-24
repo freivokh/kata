@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go.kenn.io/kata/internal/httpurl"
 )
 
 const (
@@ -458,24 +460,8 @@ func (w *WebhookClient) Send(ctx context.Context, callback, eventID, subscriptio
 }
 
 func webhookRetryAfter(value string, now time.Time) time.Duration {
-	if value == "" {
+	if strings.HasPrefix(value, "+") {
 		return 0
 	}
-	var delay time.Duration
-	if strings.IndexFunc(value, func(c rune) bool { return c < '0' || c > '9' }) == -1 {
-		seconds, err := strconv.ParseUint(value, 10, 64)
-		if err != nil || seconds > uint64(webhookRetryAfterLimit/time.Second) {
-			return webhookRetryAfterLimit
-		}
-		delay = time.Duration(seconds) * time.Second
-	} else if date, err := http.ParseTime(value); err == nil {
-		delay = date.Sub(now)
-	}
-	if delay < 0 {
-		return 0
-	}
-	if delay > webhookRetryAfterLimit {
-		return webhookRetryAfterLimit
-	}
-	return delay
+	return httpurl.ParseRetryAfter(value, now, webhookRetryAfterLimit, webhookRetryAfterLimit)
 }

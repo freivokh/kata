@@ -67,6 +67,7 @@ func registerFederationBridgeConnect(humaAPI huma.API, cfg ServerConfig) {
 		if err := policy.ConfigureClient(httpClient, hubURL, token); err != nil {
 			return nil, api.NewError(400, "validation", "hub credential target violates transport policy", "", nil)
 		}
+		observeHubBusy(httpClient)
 		bridge, err := newFederationBridgeAPIClient(httpClient, hubURL)
 		if err != nil {
 			return nil, internalAPIError(err)

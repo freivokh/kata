@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"go.kenn.io/kata/internal/httpurl"
 	"go.kenn.io/kata/internal/issuesync"
 )
 
@@ -308,13 +308,7 @@ func safeNotionCode(code string) string {
 	}
 }
 func notionRetryAfter(value string, now time.Time) time.Duration {
-	if seconds, err := strconv.ParseUint(value, 10, 64); err == nil {
-		return time.Duration(min(seconds, uint64(runTimeout/time.Second))) * time.Second
-	}
-	if at, err := http.ParseTime(value); err == nil && at.After(now) {
-		return min(at.Sub(now), runTimeout)
-	}
-	return 0
+	return httpurl.ParseRetryAfter(value, now, runTimeout, 0)
 }
 func validateResponseID(object, wantObject, id, wantID string) (string, error) {
 	canonical, err := canonicalID(id)
