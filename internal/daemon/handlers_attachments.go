@@ -132,8 +132,7 @@ func recheckUploadedAttachment(ctx context.Context, cfg ServerConfig, projectID 
 			return err
 		}
 		delay := bo.NextBackOff()
-		var headers huma.HeadersError
-		if errors.As(err, &headers) {
+		if headers, ok := errors.AsType[huma.HeadersError](err); ok {
 			if hint, valid := httpurl.RetryAfterWait(headers.GetHeaders().Get("Retry-After"), time.Now()); valid && hint >= 0 {
 				delay = hint
 			}

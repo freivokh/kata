@@ -435,12 +435,14 @@ func TestEventsTailBusyKeepsReconnecting(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	resetFlags(t)
-	ctx, cancel := context.WithTimeout(contextWithBaseURL(t.Context(), server.URL), 450*time.Millisecond)
+	ctx, cancel := context.WithTimeout(contextWithBaseURL(t.Context(), server.URL), 3*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
+	started := time.Now()
 	go func() { _, _, err := executeRootCapture(t, ctx, "events", "--tail", "--project-id", "1"); done <- err }()
 	select {
 	case <-connected:
+		assert.Less(t, time.Since(started), tailBackoffStart/2)
 		cancel()
 	case <-ctx.Done():
 		t.Error("stream did not reconnect after busy retries")

@@ -315,8 +315,7 @@ func runEventsTail(cmd *cobra.Command, opts eventsTailOptions) error {
 		}
 		res, sErr := streamOnce(ctx, apiClient, query, cursor, out, mode)
 		streamErr = sErr
-		var busy *clientpkg.BusyStreamError
-		if errors.As(sErr, &busy) {
+		if busy, ok := errors.AsType[*clientpkg.BusyStreamError](sErr); ok {
 			return struct{}{}, backoff.RetryAfter(busy.RetryAfter, sErr)
 		}
 		if errors.Is(sErr, errTerminalHTTP) {
