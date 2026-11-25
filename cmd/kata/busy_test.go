@@ -49,7 +49,7 @@ func TestRetryBusy(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			hc := &http.Client{Timeout: tc.timeout}
-			RetryBusyWithBudget(hc, BusyRetryBudget)
+			configureBusy(hc, BusyRetryBudget, false)
 			var body io.Reader = strings.NewReader("payload")
 			if tc.noReplay {
 				body = io.NopCloser(body)

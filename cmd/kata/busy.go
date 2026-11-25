@@ -12,11 +12,6 @@ import (
 	"go.kenn.io/kata/internal/api"
 )
 
-// RetryBusyWithBudget bounds when another retry may start after a refusal.
-func RetryBusyWithBudget(c *http.Client, budget time.Duration) {
-	configureBusy(c, budget, false)
-}
-
 func configureBusy(c *http.Client, budget time.Duration, stream bool) {
 	next := c.Transport
 	if next == nil {

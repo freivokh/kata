@@ -1475,7 +1475,7 @@ var fetchFederationJoinMetadata = func(ctx context.Context, bundle federationJoi
 	if err != nil {
 		return api.ProjectFederationBody{}, err
 	}
-	RetryBusyWithBudget(client.HTTPClient(), envHTTPTimeout(BusyRetryBudget))
+	configureBusy(client.HTTPClient(), envHTTPTimeout(BusyRetryBudget), false)
 	metadata, err := client.ProjectFederation(ctx, bundle.HubProjectID)
 	if status, ok := errors.AsType[*hubclient.HubStatusError](err); ok && status.StatusCode == http.StatusTooManyRequests {
 		return api.ProjectFederationBody{}, apiErrFromBody(status.StatusCode, []byte(status.Body))
