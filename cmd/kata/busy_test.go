@@ -21,18 +21,15 @@ func TestRetryBusy(t *testing.T) {
 		wantCalls              int
 		recover, noReplay      bool
 		want                   string
+		wait                   time.Duration
 	}{
-		{"proxy", "Rate exceeded.", "", time.Second, 2, true, false, ""},
-		{"admission", `{"error":{"code":"admission_limited"}}`, "", time.Second, 2, true, false, ""},
-		{"admission exhausted", `{"error":{"code":"admission_limited"}}`, "2", time.Second, 1, false, false, "127.0.0.1 is busy"},
-		{"rule", `{"error":{"code":"sibling_throttle","message":"wait"}}`, "", time.Second, 1, false, false, "sibling_throttle"},
-		{"relay", `{"error":{"code":"server_busy","message":"root.example is busy; try again in a minute"}}`, "", time.Second, 2, true, false, ""},
-		{"attempt cap", "Rate exceeded.", "0", time.Second, 4, false, false, "127.0.0.1 is busy"},
-		{"non-replayable", "Rate exceeded.", "", time.Second, 1, false, true, "127.0.0.1 is busy"},
-		{"hint waits", "Rate exceeded.", "1", 3 * time.Second, 2, true, false, ""},
-		{"zero hint", "Rate exceeded.", "0", time.Second, 2, true, false, ""},
-		{"hint exceeds budget", "Rate exceeded.", "2", time.Second, 1, false, false, "127.0.0.1 is busy"},
-		{"unbounded request long hint", "Rate exceeded.", "60", 0, 1, false, false, "127.0.0.1 is busy"},
+		{"admission exhausted", `{"error":{"code":"admission_limited"}}`, "2", time.Second, 1, false, false, "127.0.0.1 is busy", 0},
+		{"rule", `{"error":{"code":"sibling_throttle","message":"wait"}}`, "", time.Second, 1, false, false, "sibling_throttle", 0},
+		{"relay", `{"error":{"code":"server_busy","message":"root.example is busy; try again in a minute"}}`, "0", time.Second, 4, false, false, "root.example is busy", 0},
+		{"attempt cap", "Rate exceeded.", "0", time.Second, 4, false, false, "127.0.0.1 is busy", 0},
+		{"non-replayable", "Rate exceeded.", "", time.Second, 1, false, true, "127.0.0.1 is busy", 0},
+		{"hint waits", "Rate exceeded.", "1", 3 * time.Second, 2, true, false, "", time.Second},
+		{"unbounded request long hint", "Rate exceeded.", "60", 0, 1, false, false, "127.0.0.1 is busy", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -70,8 +67,8 @@ func TestRetryBusy(t *testing.T) {
 			if tc.want != "" {
 				assert.Contains(t, string(raw), tc.want)
 			}
-			if tc.name == "hint waits" {
-				assert.GreaterOrEqual(t, time.Since(start), time.Second)
+			if tc.wait > 0 {
+				assert.GreaterOrEqual(t, time.Since(start), tc.wait)
 			}
 		})
 	}

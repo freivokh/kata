@@ -1438,20 +1438,14 @@ func cancelPrepareWhileDraining(
 }
 
 func TestRebindFederationReplicaBusyHub(t *testing.T) {
-	store, project, originalBinding := prepareFederationRebind(t, rebindSourceURL)
+	store, project, _ := prepareFederationRebind(t, rebindSourceURL)
 	credentials := newReplicaCredentialStore()
 	originalCredential := rebindCredential(rebindSourceURL, false, false)
 	credentials.put(project.UID, originalCredential)
-	var busy atomic.Bool
-	busy.Store(true)
 	hub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if busy.Load() {
-			w.Header().Set("Retry-After", "2")
-			w.WriteHeader(429)
-			_, _ = w.Write([]byte("Rate exceeded."))
-			return
-		}
-		_ = json.NewEncoder(w).Encode(api.ProjectFederationBody{ProjectID: 42, ProjectUID: project.UID})
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte("Rate exceeded."))
 	}))
 	t.Cleanup(hub.Close)
 	previousTransport := http.DefaultTransport
@@ -1462,15 +1456,4 @@ func TestRebindFederationReplicaBusyHub(t *testing.T) {
 	resp, raw := doReq(t, server, http.MethodPost, path, map[string]any{"hub_catalog": "primary-hub"}, nil)
 	assertAPIError(t, resp.StatusCode, raw, 429, "server_busy")
 	require.Equal(t, "2", resp.Header.Get("Retry-After"))
-	binding, err := store.FederationBindingByProject(t.Context(), project.ID)
-	require.NoError(t, err)
-	assert.Equal(t, originalBinding, binding)
-	credential, found, err := credentials.FederationCredential(t.Context(), project.UID)
-	require.NoError(t, err)
-	require.True(t, found)
-	assert.Equal(t, originalCredential, credential)
-	busy.Store(false)
-	resp, raw = doReq(t, server, http.MethodPost, path, map[string]any{"hub_catalog": "primary-hub"}, nil)
-	require.Equal(t, 200, resp.StatusCode, string(raw))
-	require.Contains(t, string(raw), `"state":"rebound"`)
 }

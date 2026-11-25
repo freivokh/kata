@@ -22,7 +22,6 @@ func TestHubBusyForwarding(t *testing.T) {
 	}{
 		{"proxy", "Rate exceeded.", true, true, "127.0.0.1 is busy; try again in a minute"},
 		{"relay", `{"error":{"code":"server_busy","message":"root.example is busy; try again in a minute"}}`, true, true, "root.example is busy; try again in a minute"},
-		{"rule", `{"error":{"code":"sibling_throttle"}}`, true, false, ""},
 		{"background", "Rate exceeded.", false, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

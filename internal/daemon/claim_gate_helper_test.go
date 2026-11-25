@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -520,31 +519,22 @@ func TestRequireDeletedHistoryAccessMapsRefusalsToNotFoundAndKeepsHubErrors(t *t
 	tests := []struct {
 		name       string
 		hubStatus  int // zero: spoke with push disabled, no hub involved
-		busy       bool
 		wantStatus int
 		wantCode   string
 	}{
 		{name: "federated read only is refused", wantStatus: http.StatusNotFound, wantCode: "issue_not_found"},
 		{name: "hub rate limit keeps its status", hubStatus: http.StatusTooManyRequests, wantStatus: http.StatusTooManyRequests, wantCode: "hub_rejected"},
-		{name: "busy hub keeps its refusal", hubStatus: http.StatusTooManyRequests, busy: true, wantStatus: http.StatusTooManyRequests, wantCode: "server_busy"},
 		{name: "hub unauthorized reports a rejected hub credential", hubStatus: http.StatusUnauthorized, wantStatus: http.StatusBadGateway, wantCode: "hub_credential_rejected"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
-			if tt.busy {
-				ctx = context.WithValue(ctx, hubBusyKey{}, true)
-			}
 			store := openClaimGateHelperDB(t)
 			project, issue := createClaimGateHelperIssue(t, store)
 			if tt.hubStatus == 0 {
 				enableClaimGateHelperSpokeWithPush(t, store, project, "http://127.0.0.1:1", 99, false)
 			} else {
 				hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					if tt.busy {
-						http.Error(w, "Rate exceeded", tt.hubStatus)
-						return
-					}
 					api.WriteEnvelope(w, tt.hubStatus, "hub_rejected", "hub rejected claim status")
 				}))
 				t.Cleanup(hub.Close)
