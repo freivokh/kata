@@ -309,12 +309,12 @@ func optsForKind(kind clientOptsKind) client.Opts {
 	if kind == clientOptsSSE {
 		return client.Opts{ResponseHeaderTimeout: client.SSEHandshakeTimeout}
 	}
-	return client.Opts{Timeout: client.BusyRetryBudget}
+	return client.Opts{Timeout: defaultHTTPTimeout}
 }
 
 func retryBusyTUIClient(hc *http.Client, err error, kind clientOptsKind) (*http.Client, error) {
 	if err == nil && kind == clientOptsNormal {
-		client.RetryBusy(hc)
+		client.RetryBusyPerAttempt(hc, client.BusyRetryBudget)
 	}
 	return hc, err
 }

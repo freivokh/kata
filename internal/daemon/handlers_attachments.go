@@ -16,7 +16,6 @@ import (
 	"time"
 	"uuid"
 
-	backoff "github.com/cenkalti/backoff/v5"
 	"github.com/danielgtaylor/huma/v2"
 	"go.kenn.io/kata/internal/api"
 	"go.kenn.io/kata/internal/config"
@@ -122,22 +121,18 @@ func recheckAttachmentWrite(ctx context.Context, cfg ServerConfig, projectID int
 }
 
 func recheckUploadedAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment) error {
-	bo := backoff.NewExponentialBackOff()
-	bo.InitialInterval, bo.MaxInterval, bo.Multiplier = 250*time.Millisecond, time.Second, 2
-	bo.Reset()
-	deadline := time.Now().Add(11 * time.Second)
-	for attempt := 0; ; attempt++ {
+	retry := httpurl.NewBusyRetry(httpurl.BusyRetryBudget)
+	for {
 		err := recheckAttachmentWrite(ctx, cfg, projectID, iss, actor)
 		if forwardedHubBusy(err) == nil {
 			return err
 		}
-		delay := bo.NextBackOff()
+		hint := ""
 		if headers, ok := errors.AsType[huma.HeadersError](err); ok {
-			if hint, valid := httpurl.RetryAfterWait(headers.GetHeaders().Get("Retry-After"), time.Now()); valid && hint >= 0 {
-				delay = hint
-			}
+			hint = headers.GetHeaders().Get("Retry-After")
 		}
-		if attempt == 3 || time.Until(deadline) <= delay {
+		delay, retryable := retry.Next(hint)
+		if !retryable {
 			return api.NewError(http.StatusBadGateway, "attachment_upload_unlinked", fmt.Sprintf("file uploaded as Docbank version %s, but the hub was busy before it could be attached", e.DocbankVersion), "Find the uploaded version in Docbank and link it to the issue.", nil)
 		}
 		timer := time.NewTimer(delay)

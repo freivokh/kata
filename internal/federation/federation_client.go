@@ -77,7 +77,7 @@ func NewClient(ctx context.Context, baseURL string, token string, opts clientpkg
 }
 
 // RetryBusy enables command-scoped retries after signing is configured.
-func (c *Client) RetryBusy() { clientpkg.RetryBusy(c.client) }
+func (c *Client) RetryBusy(budget time.Duration) { clientpkg.RetryBusyPerAttempt(c.client, budget) }
 
 // PollProjectEvents fetches hub project events strictly after afterID.
 func (c *Client) PollProjectEvents(

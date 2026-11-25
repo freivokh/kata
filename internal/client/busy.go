@@ -2,22 +2,76 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/v2"
 	"io"
 	"net/http"
 	"time"
 
-	backoff "github.com/cenkalti/backoff/v5"
 	"go.kenn.io/kata/internal/api"
 	"go.kenn.io/kata/internal/httpurl"
 )
 
 // BusyRetryBudget leaves room for a five-second hub hint and a retry.
-const BusyRetryBudget = 11 * time.Second
+const BusyRetryBudget = httpurl.BusyRetryBudget
 
 // RetryBusy retries replayable requests refused by a busy server.
 func RetryBusy(c *http.Client) {
 	RetryBusyWithBudget(c, BusyRetryBudget)
+}
+
+// RetryBusyPerAttempt keeps the client's timeout for each individual attempt.
+func RetryBusyPerAttempt(c *http.Client, budget time.Duration) {
+	if c.Timeout > 0 {
+		next := c.Transport
+		if next == nil {
+			next = http.DefaultTransport
+		}
+		c.Transport = busyAttemptTimeout{next: next, timeout: c.Timeout}
+		c.Timeout = 0
+	}
+	RetryBusyWithBudget(c, budget)
+}
+
+type busyAttemptTimeout struct {
+	next    http.RoundTripper
+	timeout time.Duration
+}
+
+func (t busyAttemptTimeout) RoundTrip(req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(req.Context(), t.timeout)
+	resp, err := t.next.RoundTrip(req.Clone(ctx))
+	if err != nil {
+		cancel()
+		return resp, err
+	}
+	resp.Body = &busyAttemptBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+func (t busyAttemptTimeout) CloseIdleConnections() {
+	if closer, ok := t.next.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
+type busyAttemptBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *busyAttemptBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.cancel()
+	}
+	return n, err
+}
+
+func (b *busyAttemptBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
 }
 
 // RetryBusyWithBudget bounds when another retry may start after a refusal.
@@ -59,12 +113,9 @@ func (t busyTransport) CloseIdleConnections() {
 }
 
 func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	var deadline time.Time
-	bo := backoff.NewExponentialBackOff()
-	bo.InitialInterval, bo.MaxInterval, bo.Multiplier, bo.RandomizationFactor = 250*time.Millisecond, time.Second, 2, 0.5
-	bo.Reset()
+	var retry *httpurl.BusyRetry
 	request := req
-	for attempt := 0; ; attempt++ {
+	for {
 		resp, err := t.next.RoundTrip(request)
 		if err != nil {
 			return resp, err
@@ -73,8 +124,8 @@ func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if !busy {
 			return resp, nil
 		}
-		if attempt == 0 {
-			deadline = time.Now().Add(t.budget)
+		if retry == nil {
+			retry = httpurl.NewBusyRetry(t.budget)
 		}
 		if code != api.CodeServerBusy {
 			encoded, _ := json.Marshal(api.NewError(http.StatusTooManyRequests, api.CodeServerBusy, message, "", nil).Envelope())
@@ -83,14 +134,10 @@ func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			resp.ContentLength = int64(len(encoded))
 			resp.Header.Set("Content-Type", "application/json")
 		}
-		delay := bo.NextBackOff()
-		if hint, valid := httpurl.RetryAfterWait(resp.Header.Get("Retry-After"), time.Now()); valid && hint >= 0 {
-			delay = hint
-		}
+		delay, retryable := retry.Next(resp.Header.Get("Retry-After"))
 		callerDeadline, hasDeadline := req.Context().Deadline()
-		if attempt == 3 || (req.Body != nil && req.GetBody == nil) ||
-			(hasDeadline && time.Until(callerDeadline) <= delay) ||
-			(t.budget > 0 && time.Until(deadline) <= delay) {
+		if !retryable || (req.Body != nil && req.GetBody == nil) ||
+			(hasDeadline && time.Until(callerDeadline) <= delay) {
 			if t.stream {
 				_ = resp.Body.Close()
 				return nil, &BusyStreamError{Message: message, RetryAfter: delay}

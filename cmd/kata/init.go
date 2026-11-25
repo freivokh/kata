@@ -92,6 +92,7 @@ const (
 	kindConflict      errKind = "conflict"
 	kindConfirm       errKind = "confirm"
 	kindDaemonUnavail errKind = "daemon_unavailable"
+	kindServerBusy    errKind = "server_busy"
 	kindInternal      errKind = "internal"
 	kindChecksFailed  errKind = "checks_failed"
 )
@@ -820,7 +821,7 @@ func apiErrFromBody(status int, bs []byte) *cliError {
 	}
 	kind := kindForStatus(status)
 	if env.Error.Code == api.CodeServerBusy {
-		kind = kindDaemonUnavail
+		kind = kindServerBusy
 	}
 	return &cliError{
 		HTTPStatus: status,

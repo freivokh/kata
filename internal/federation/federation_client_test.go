@@ -52,7 +52,7 @@ func TestFederationClientRetryBusySignsEachAttempt(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = previous })
 	client, err := NewClient(t.Context(), hub.URL, "enrollment-token", clientpkg.Opts{Timeout: 3 * time.Second, FederationSigning: &source})
 	require.NoError(t, err)
-	client.RetryBusy()
+	client.RetryBusy(clientpkg.BusyRetryBudget)
 	metadata, err := client.ProjectFederation(t.Context(), 42)
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), metadata.ProjectID)

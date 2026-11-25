@@ -807,15 +807,24 @@ func claimForwardError(err error) error {
 		return busy
 	}
 	if statusErr, ok := errors.AsType[*claimHubStatusError](err); ok {
-		if statusErr.StatusCode == http.StatusUnauthorized {
-			return federationBridgeHubRejection(statusErr.StatusCode)
-		}
-		if statusErr.StatusCode == http.StatusServiceUnavailable && hubStatusErrorCode(statusErr) == "federation_offline" {
-			return api.NewError(http.StatusServiceUnavailable, "federation_offline", statusErr.Error(), "", nil)
-		}
-		return api.NewError(statusErr.StatusCode, "hub_claim_failed", statusErr.Error(), "", nil)
+		return claimHubStatusForwardError(statusErr)
 	}
 	return api.NewError(http.StatusServiceUnavailable, "federation_offline", err.Error(), "", nil)
+}
+
+func claimHubStatusForwardError(statusErr *claimHubStatusError) error {
+	if statusErr.StatusCode == http.StatusUnauthorized {
+		return federationBridgeHubRejection(statusErr.StatusCode)
+	}
+	if statusErr.StatusCode == http.StatusServiceUnavailable && hubStatusErrorCode(statusErr) == "federation_offline" {
+		return api.NewError(http.StatusServiceUnavailable, "federation_offline", statusErr.Error(), "", nil)
+	}
+	if statusErr.StatusCode == http.StatusTooManyRequests {
+		if forwarded := assignmentClaimEnvelopeError(statusErr); forwarded != nil {
+			return forwarded
+		}
+	}
+	return api.NewError(statusErr.StatusCode, "hub_claim_failed", statusErr.Error(), "", nil)
 }
 
 func isTransportClaimError(err error) bool {

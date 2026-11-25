@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -510,11 +509,18 @@ func syncForwardedAssignmentDestination(
 
 func assignmentClaimForwardError(err error) error {
 	if statusErr, ok := errors.AsType[*claimHubStatusError](err); ok {
-		var envelope api.ErrorEnvelope
-		if json.Unmarshal([]byte(statusErr.Body), &envelope) == nil && envelope.Error.Code != "" {
-			return api.NewError(statusErr.StatusCode, envelope.Error.Code, envelope.Error.Message,
-				envelope.Error.Hint, map[string]any(envelope.Error.Data))
+		if forwarded := assignmentClaimEnvelopeError(statusErr); forwarded != nil {
+			return forwarded
 		}
 	}
 	return claimForwardError(err)
+}
+
+func assignmentClaimEnvelopeError(statusErr *claimHubStatusError) error {
+	envelope, err := api.ParseErrorEnvelope([]byte(statusErr.Body))
+	if err == nil && envelope.Error.Code != "" {
+		return api.NewError(statusErr.StatusCode, envelope.Error.Code, envelope.Error.Message,
+			envelope.Error.Hint, map[string]any(envelope.Error.Data))
+	}
+	return nil
 }

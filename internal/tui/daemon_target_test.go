@@ -46,6 +46,24 @@ func TestTUIBusyCloseFiveSecondHint(t *testing.T) {
 	require.Equal(t, 2, calls)
 }
 
+func TestTUIClientKeepsOrdinaryTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	target := daemonTarget{resolved: clientpkg.ResolvedDaemon{BaseURL: server.URL}}
+	hc, err := newHTTPClientForTUI(t.Context(), server.URL, target, clientOptsNormal)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 7*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	started := time.Now()
+	_, err = hc.Do(req)
+	require.Error(t, err)
+	assert.Less(t, time.Since(started), 6*time.Second)
+}
+
 func TestDaemonTargetsFromConfigIncludesConfiguredEntries(t *testing.T) {
 	token := t.Name()
 	file := filepath.Join(t.TempDir(), "missing-credential")
