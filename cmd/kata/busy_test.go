@@ -108,3 +108,35 @@ func TestRetryBusyClosesResponseBeforeDelay(t *testing.T) {
 		<-done
 	})
 }
+
+type busyTimeoutTransport struct{ calls int }
+
+func (t *busyTimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.calls++
+	if t.calls == 1 {
+		return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"1"}}, Body: io.NopCloser(strings.NewReader("Rate exceeded.")), Request: req}, nil
+	}
+	<-req.Context().Done()
+	return nil, req.Context().Err()
+}
+
+func TestRetryBusyReportsBusyWhenRetryTimesOut(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		transport := &busyTimeoutTransport{}
+		hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
+		RetryBusyWithBudget(hc, BusyRetryBudget)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://hub.example", nil)
+		require.NoError(t, err)
+		resp, err := hc.Do(req) //nolint:gosec // fake transport
+		require.NoError(t, err)
+		require.Equal(t, 429, resp.StatusCode)
+		require.Equal(t, 2, transport.calls)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		cliErr := apiErrFromBody(resp.StatusCode, body)
+		assert.Equal(t, kindServerBusy, cliErr.Kind)
+		assert.Equal(t, ExitDaemonUnavail, cliErr.ExitCode)
+		assert.Contains(t, cliErr.Message, "hub.example is busy")
+	})
+}
