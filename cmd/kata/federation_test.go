@@ -22,6 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -48,21 +49,24 @@ func TestFederationJoinMetadataBusy(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var attempts atomic.Int32
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			previousTransport := http.DefaultTransport
+			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				if attempts.Add(1) > 1 && tc.recover {
-					_, _ = w.Write([]byte(`{"project_uid":"project-uid","replay_horizon_event_id":1}`))
-					return
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"project_uid":"project-uid","replay_horizon_event_id":1}`)), Request: req}, nil
 				}
+				header := make(http.Header)
 				if tc.recover {
-					w.Header().Set("Retry-After", "5")
+					header.Set("Retry-After", "5")
 				} else {
-					w.Header().Set("Retry-After", "60")
+					header.Set("Retry-After", "60")
 				}
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			t.Cleanup(srv.Close)
-			_, err := fetchFederationJoinMetadata(t.Context(), federationJoinBundle{HubURL: srv.URL, HubProjectID: 1, Token: "token"})
+				return &http.Response{StatusCode: http.StatusTooManyRequests, Header: header, Body: io.NopCloser(strings.NewReader(tc.body)), Request: req}, nil
+			})
+			t.Cleanup(func() { http.DefaultTransport = previousTransport })
+			var err error
+			synctest.Test(t, func(t *testing.T) {
+				_, err = fetchFederationJoinMetadata(t.Context(), federationJoinBundle{HubURL: "http://127.0.0.1", HubProjectID: 1, Token: "token"})
+			})
 			if tc.recover {
 				require.NoError(t, err)
 			} else {
@@ -1592,19 +1596,20 @@ func TestFederationSpokePreflightBusy(t *testing.T) {
 	t.Setenv("KATA_HTTP_TIMEOUT", "")
 	flags.Daemon = "spoke"
 	var calls atomic.Int32
-	spoke := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		assert.Empty(t, r.Header.Get("Authorization"))
 		if calls.Add(1) == 1 {
-			w.Header().Set("Retry-After", "5")
-			http.Error(w, "Rate exceeded", http.StatusTooManyRequests)
-			return
+			return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{"5"}}, Body: io.NopCloser(strings.NewReader("Rate exceeded")), Request: r}, nil
 		}
-		_, _ = w.Write([]byte(`{"instance_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01"}`))
-	}))
-	t.Cleanup(spoke.Close)
-	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte(fmt.Sprintf("[[daemon]]\nname = %q\nurl = %q\n", "spoke", spoke.URL)), 0o600))
-	err := federationSpokeProbePreflight(t.Context(), "01HZZZZZZZZZZZZZZZZZZZZZ01")
-	require.NoError(t, err)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"instance_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01"}`)), Request: r}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte(fmt.Sprintf("[[daemon]]\nname = %q\nurl = %q\n", "spoke", "http://127.0.0.1")), 0o600))
+	synctest.Test(t, func(t *testing.T) {
+		err := federationSpokeProbePreflight(t.Context(), "01HZZZZZZZZZZZZZZZZZZZZZ01")
+		require.NoError(t, err)
+	})
 	require.Equal(t, int32(2), calls.Load())
 }
 

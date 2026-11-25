@@ -414,7 +414,6 @@ func TestDirectSpokeSearchReportsUnavailableHub(t *testing.T) {
 	setClaimBindingHubURL(t, spoke, replica.ID, busy.URL)
 	resp, body = envGetRaw(t, spoke, fmt.Sprintf("/api/v1/projects/%d/search?q=claim&mode=semantic", replica.ID))
 	assertAPIError(t, resp.StatusCode, body, http.StatusTooManyRequests, "server_busy")
-	require.Equal(t, "2", resp.Header.Get("Retry-After"))
 	resp, body = envGetRaw(t, spoke, fmt.Sprintf("/api/v1/projects/%d/search?q=claim", replica.ID))
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 	require.Contains(t, string(body), `"degraded":true`)

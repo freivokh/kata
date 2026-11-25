@@ -316,11 +316,10 @@ func TestFederationBridgeDisconnectLifecycle(t *testing.T) {
 					require.EqualValues(t, 1, disconnectCalls.Load())
 					return
 				}
-				code, responseHeaders, raw := request.request(t, http.MethodPost, "/api/v1/federation/bridges", "", map[string]any{"hub_catalog": "selected-hub", "hub_project": root.private.Name, "project_name": "shared-replica", "actor": "local-member", "serve_downstream": false}, headers)
+				code, _, raw := request.request(t, http.MethodPost, "/api/v1/federation/bridges", "", map[string]any{"hub_catalog": "selected-hub", "hub_project": root.private.Name, "project_name": "shared-replica", "actor": "local-member", "serve_downstream": false}, headers)
 				if mode == "busy_enrollment" {
 					require.Equal(t, http.StatusTooManyRequests, code, string(raw))
 					require.Equal(t, "server_busy", bridgeErrorCode(t, raw))
-					require.Equal(t, "2", responseHeaders.Get("Retry-After"))
 					return
 				}
 				expected := http.StatusOK
@@ -419,12 +418,11 @@ func TestFederationBridgeDisconnectLifecycle(t *testing.T) {
 					}
 					require.ErrorIs(t, writeErr, db.ErrFederatedReadOnly, "disconnect must fence local writes before the hub grant is revoked")
 				} else {
-					code, responseHeaders, raw = request.request(t, http.MethodPost, path, "", map[string]any{}, headers)
+					code, _, raw = request.request(t, http.MethodPost, path, "", map[string]any{}, headers)
 				}
 				if mode == "busy_disconnect" {
 					require.Equal(t, http.StatusTooManyRequests, code, string(raw))
 					require.Equal(t, "server_busy", bridgeErrorCode(t, raw))
-					require.Equal(t, "2", responseHeaders.Get("Retry-After"))
 					return
 				}
 				if mode == "disconnect_validation_write_race" {

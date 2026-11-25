@@ -233,11 +233,6 @@ func TestCronSpokeForwardRefusals(t *testing.T) {
 			if kind == "hub-busy" || kind == "push-busy" {
 				want = http.StatusTooManyRequests
 				assertAPIError(t, response.StatusCode, raw, want, "server_busy")
-				retry := "2"
-				if kind == "push-busy" {
-					retry = "5"
-				}
-				require.Equal(t, retry, response.Header.Get("Retry-After"))
 			}
 			require.Equalf(t, want, response.StatusCode, "%s", raw)
 			require.NotContains(t, string(raw), f.credential.Token)

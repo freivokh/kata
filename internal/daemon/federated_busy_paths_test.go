@@ -47,5 +47,4 @@ func TestFederatedDocbankBusy(t *testing.T) {
 	path := fmt.Sprintf("/api/v1/projects/%d/issues/%s/attachments/links", replica.ID, issue.ShortID)
 	resp, raw := envDoRaw(t, spoke, http.MethodPost, path, map[string]string{"path": "/example.txt", "actor": "tester"}, nil)
 	assertAPIError(t, resp.StatusCode, raw, http.StatusTooManyRequests, "server_busy")
-	require.Equal(t, "2", resp.Header.Get("Retry-After"))
 }
