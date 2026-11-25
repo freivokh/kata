@@ -293,6 +293,9 @@ func ensureDocbankIssueUpstream(ctx context.Context, cfg ServerConfig, project d
 	syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := cfg.FederationSyncOnce(syncCtx, binding, credential); err != nil {
+		if busy := syncHubBusy(err, binding.HubURL); busy != nil {
+			return busy
+		}
 		return attachmentError(http.StatusServiceUnavailable, "federation_offline")
 	}
 	currentBinding, err := cfg.DB.FederationBindingByProject(ctx, project.ID)

@@ -46,7 +46,7 @@ func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for {
 		resp, err := t.next.RoundTrip(request)
 		if err != nil {
-			if lastResponse != nil && (req.Method == http.MethodGet || req.Method == http.MethodHead || req.Method == http.MethodOptions) && errors.Is(req.Context().Err(), context.DeadlineExceeded) {
+			if lastResponse != nil && (req.Method == http.MethodGet || req.Method == http.MethodHead || req.Method == http.MethodOptions) && errors.Is(err, context.DeadlineExceeded) {
 				return t.expiredBusy(lastResponse, lastMessage, lastDelay)
 			}
 			return resp, err

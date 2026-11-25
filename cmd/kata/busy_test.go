@@ -100,8 +100,8 @@ func TestRetryBusyRetryTimeout(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				body := &busyCloseBody{Reader: strings.NewReader(`{"error":{"code":"server_busy","message":"hub.example is busy"}}`), closed: make(chan struct{})}
 				transport := &busyTimeoutTransport{body: body}
-				hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
-				RetryBusyWithBudget(hc, BusyRetryBudget)
+				hc, err := retryingDaemonHTTPClient("https://hub.example", &http.Client{Transport: transport, Timeout: 2 * time.Second}, false)
+				require.NoError(t, err)
 				req, err := http.NewRequestWithContext(t.Context(), method, "https://hub.example", strings.NewReader("payload"))
 				require.NoError(t, err)
 				var resp *http.Response

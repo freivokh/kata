@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"go.kenn.io/kata/internal/api"
@@ -49,4 +52,29 @@ func forwardedHubBusy(err error) error {
 		return err
 	}
 	return nil
+}
+
+func syncHubBusy(err error, hubURL string) error {
+	var status interface {
+		HTTPStatus() int
+		HTTPBody() string
+		HTTPRetryAfter() time.Duration
+	}
+	if !errors.As(err, &status) || status.HTTPStatus() != http.StatusTooManyRequests {
+		return nil
+	}
+	hub, err := url.Parse(hubURL)
+	if err != nil {
+		return nil
+	}
+	message, _, busy := api.BusyRefusal([]byte(status.HTTPBody()), hub.Hostname())
+	if !busy {
+		return nil
+	}
+	failure := api.NewError(http.StatusTooManyRequests, api.CodeServerBusy, message, "", nil)
+	if status.HTTPRetryAfter() > 0 {
+		seconds := (status.HTTPRetryAfter() + time.Second - 1) / time.Second
+		return huma.ErrorWithHeaders(failure, http.Header{"Retry-After": []string{strconv.FormatInt(int64(seconds), 10)}})
+	}
+	return failure
 }
