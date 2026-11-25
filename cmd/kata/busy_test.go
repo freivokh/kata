@@ -140,3 +140,16 @@ func TestRetryBusyReportsBusyWhenRetryTimesOut(t *testing.T) {
 		assert.Contains(t, cliErr.Message, "hub.example is busy")
 	})
 }
+
+func TestRetryBusyWriteRetryTimeoutReturnsError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		transport := &busyTimeoutTransport{}
+		hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
+		RetryBusyWithBudget(hc, BusyRetryBudget)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://hub.example", strings.NewReader("payload"))
+		require.NoError(t, err)
+		_, err = hc.Do(req) //nolint:gosec // fake transport
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, 2, transport.calls)
+	})
+}
