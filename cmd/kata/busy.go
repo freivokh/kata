@@ -15,11 +15,6 @@ func RetryBusyWithBudget(c *http.Client, budget time.Duration) {
 	configureBusy(c, budget, false)
 }
 
-// RetryBusyStream lets a long-lived stream reconnect after busy retries.
-func RetryBusyStream(c *http.Client, budget time.Duration) {
-	configureBusy(c, budget, true)
-}
-
 func configureBusy(c *http.Client, budget time.Duration, stream bool) {
 	next := c.Transport
 	if next == nil {

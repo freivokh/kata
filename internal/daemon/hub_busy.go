@@ -37,12 +37,6 @@ func (t hubBusyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return nil, failure
 }
 
-func (t hubBusyTransport) CloseIdleConnections() {
-	if closer, ok := t.next.(interface{ CloseIdleConnections() }); ok {
-		closer.CloseIdleConnections()
-	}
-}
-
 func withHubBusy(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), hubBusyKey{}, true)))
