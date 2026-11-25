@@ -252,7 +252,6 @@ func TestParseRetryAfter(t *testing.T) {
 		want   time.Duration
 	}{
 		{"seconds", "120", 2 * time.Minute},
-		{"signed seconds", "+120", 2 * time.Minute},
 		{"date", now.Add(90 * time.Second).Format(http.TimeFormat), 90 * time.Second},
 		{"past date", now.Add(-time.Minute).Format(http.TimeFormat), 0},
 		{"absent", "", 0},

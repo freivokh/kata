@@ -84,26 +84,13 @@ func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			resp.Header.Set("Content-Type", "application/json")
 		}
 		delay := bo.NextBackOff()
-		if hint, valid := httpurl.ParseRetryAfterValid(resp.Header.Get("Retry-After"), time.Now(), time.Duration(1<<63-1), time.Duration(1<<63-1)); valid {
+		if hint, valid := httpurl.RetryAfterWait(resp.Header.Get("Retry-After"), time.Now()); valid && hint >= 0 {
 			delay = hint
 		}
-		if attempt == 3 || (req.Body != nil && req.GetBody == nil) {
-			if t.stream {
-				_ = resp.Body.Close()
-				return nil, &BusyStreamError{Message: message, RetryAfter: delay}
-			}
-			return resp, nil
-		}
-		if callerDeadline, ok := req.Context().Deadline(); ok {
-			if time.Until(callerDeadline) <= delay {
-				if t.stream {
-					_ = resp.Body.Close()
-					return nil, &BusyStreamError{Message: message, RetryAfter: delay}
-				}
-				return resp, nil
-			}
-		}
-		if t.budget > 0 && time.Until(deadline) <= delay {
+		callerDeadline, hasDeadline := req.Context().Deadline()
+		if attempt == 3 || (req.Body != nil && req.GetBody == nil) ||
+			(hasDeadline && time.Until(callerDeadline) <= delay) ||
+			(t.budget > 0 && time.Until(deadline) <= delay) {
 			if t.stream {
 				_ = resp.Body.Close()
 				return nil, &BusyStreamError{Message: message, RetryAfter: delay}

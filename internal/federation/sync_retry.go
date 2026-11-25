@@ -16,7 +16,6 @@ import (
 	"go.kenn.io/kata/internal/api"
 	"go.kenn.io/kata/internal/config"
 	"go.kenn.io/kata/internal/db"
-	"go.kenn.io/kata/internal/httpurl"
 )
 
 // A refused credential needs a change somewhere before a retry can pass: a new
@@ -381,12 +380,20 @@ func heldRetryIdentity(binding db.FederationBinding, credential config.Federatio
 // parseRetryAfter reads a Retry-After header as delay seconds or an HTTP date.
 func parseRetryAfter(value string, now time.Time) time.Duration {
 	value = strings.TrimSpace(value)
-	if _, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return httpurl.ParseRetryAfter(strings.TrimPrefix(value, "+"), now, maxHonoredRetryAfter, 0)
-	} else if errors.Is(err, strconv.ErrRange) {
+	if value == "" {
 		return 0
 	}
-	return httpurl.ParseRetryAfter(value, now, time.Duration(1<<63-1), 0)
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(min(seconds, int64(maxHonoredRetryAfter/time.Second))) * time.Second
+	}
+	at, err := http.ParseTime(value)
+	if err != nil {
+		return 0
+	}
+	return max(at.Sub(now), 0)
 }
 
 func (r *Runner) effectiveInterval() time.Duration {
