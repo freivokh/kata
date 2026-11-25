@@ -1471,11 +1471,16 @@ type federationJoinBundle struct {
 
 var fetchFederationJoinMetadata = func(ctx context.Context, bundle federationJoinBundle) (api.ProjectFederationBody, error) {
 	client, err := hubclient.NewClient(ctx, bundle.HubURL, bundle.Token,
-		clientpkg.Opts{Timeout: envHTTPTimeout(defaultHTTPTimeout), AllowInsecure: bundle.AllowInsecure, FederationSigning: bundle.Signing})
+		clientpkg.Opts{Timeout: envHTTPTimeout(BusyRetryBudget), AllowInsecure: bundle.AllowInsecure, FederationSigning: bundle.Signing})
 	if err != nil {
 		return api.ProjectFederationBody{}, err
 	}
-	return client.ProjectFederation(ctx, bundle.HubProjectID)
+	RetryBusyWithBudget(client.HTTPClient(), envHTTPTimeout(BusyRetryBudget))
+	metadata, err := client.ProjectFederation(ctx, bundle.HubProjectID)
+	if status, ok := errors.AsType[*hubclient.HubStatusError](err); ok && status.StatusCode == http.StatusTooManyRequests {
+		return api.ProjectFederationBody{}, apiErrFromBody(status.StatusCode, []byte(status.Body))
+	}
+	return metadata, err
 }
 
 func hydrateFederationJoinMetadata(ctx context.Context, bundle *federationJoinBundle) error {

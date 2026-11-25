@@ -11,8 +11,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"go.kenn.io/kata/internal/api"
 	"go.kenn.io/kata/internal/config"
 	"go.kenn.io/kata/internal/cron"
@@ -100,6 +102,26 @@ func forwardCronJob(ctx context.Context, cfg ServerConfig, projectID int64, uid,
 		return nil, true, api.NewError(409, "federated_read_only", "owning hub does not support native cron writes", "Upgrade the hub, or run the command against it with --daemon <hub-name>.", nil)
 	}
 	if err := cfg.FederationPushPending(ctx, binding, cred); err != nil {
+		var status interface {
+			HTTPStatus() int
+			HTTPBody() string
+			HTTPRetryAfter() time.Duration
+		}
+		if errors.As(err, &status) && status.HTTPStatus() == http.StatusTooManyRequests {
+			hub, _ := url.Parse(bindingOrigin)
+			message, _, busy := api.BusyRefusal([]byte(status.HTTPBody()), hub.Hostname())
+			if busy {
+				failure := api.NewError(http.StatusTooManyRequests, api.CodeServerBusy, message, "", nil)
+				if status.HTTPRetryAfter() > 0 {
+					seconds := (status.HTTPRetryAfter() + time.Second - 1) / time.Second
+					return nil, true, huma.ErrorWithHeaders(failure, http.Header{"Retry-After": []string{strconv.FormatInt(int64(seconds), 10)}})
+				}
+				return nil, true, failure
+			}
+			if envelope, parseErr := api.ParseErrorEnvelope([]byte(status.HTTPBody())); parseErr == nil && envelope.Error.Code != "" {
+				return nil, true, api.NewError(status.HTTPStatus(), envelope.Error.Code, envelope.Error.Message, envelope.Error.Hint, envelope.Error.Data)
+			}
+		}
 		return nil, true, cronForwardUnavailable("pending federation push failed; no cron write was sent")
 	}
 	// Admission excludes rebind and leave, but a rejoin can rewrite the binding

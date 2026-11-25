@@ -513,3 +513,25 @@ func TestCronSpokeForwardBusyHub(t *testing.T) {
 	require.Contains(t, string(raw), "127.0.0.1 is busy")
 	require.Equal(t, "2", resp.Header.Get("Retry-After"))
 }
+
+func TestCronSpokeForwardPendingPushRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code, message, retry string
+	}{
+		{"capacity", `{"error":{"code":"admission_limited","message":"busy"}}`, "server_busy", "127.0.0.1 is busy", "5"},
+		{"rule", `{"error":{"code":"sibling_throttle","message":"too many siblings"}}`, "sibling_throttle", "too many siblings", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newCronForwardFixture(t, func(_ *cronForwardFixture, cfg *daemon.ServerConfig) {
+				cfg.FederationPushPending = func(context.Context, db.FederationBinding, config.FederationCredential) error {
+					return fmt.Errorf("push: %w", &federation.HubStatusError{StatusCode: http.StatusTooManyRequests, Body: tc.body, RetryAfter: 5 * time.Second})
+				}
+			})
+			resp, raw := f.put(t, cronHTTPUID(t), "")
+			assertAPIError(t, resp.StatusCode, raw, http.StatusTooManyRequests, tc.code)
+			require.Contains(t, string(raw), tc.message)
+			require.Equal(t, tc.retry, resp.Header.Get("Retry-After"))
+			require.Zero(t, f.writes.Load())
+		})
+	}
+}

@@ -37,7 +37,8 @@ func ParseErrorEnvelope(body []byte) (ErrorEnvelope, error) {
 	return envelope, err
 }
 
-func busyRefusal(body []byte, host string) (string, string, bool) {
+// BusyRefusal classifies a 429 body and returns its busy message and code.
+func BusyRefusal(body []byte, host string) (string, string, bool) {
 	envelope, _ := ParseErrorEnvelope(body)
 	switch strings.TrimSpace(envelope.Error.Code) {
 	case CodeServerBusy:
@@ -62,7 +63,7 @@ func InspectBusyResponse(resp *http.Response, host string) (string, string, bool
 	if err != nil {
 		return "", "", false
 	}
-	return busyRefusal(body, host)
+	return BusyRefusal(body, host)
 }
 
 // APIError is the Go representation that handlers return; satisfies Huma's

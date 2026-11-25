@@ -36,6 +36,47 @@ import (
 	"go.kenn.io/kata/internal/version"
 )
 
+func TestFederationJoinMetadataBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code, message string
+		recover                   bool
+		attempts                  int32
+	}{
+		{"retry", "Rate exceeded.", "", "", true, 2},
+		{"busy", "Rate exceeded.", "server_busy", "127.0.0.1 is busy", false, 1},
+		{"rule", `{"error":{"code":"sibling_throttle","message":"too many siblings"}}`, "sibling_throttle", "too many siblings", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if attempts.Add(1) > 1 && tc.recover {
+					_, _ = w.Write([]byte(`{"project_uid":"project-uid","replay_horizon_event_id":1}`))
+					return
+				}
+				if !tc.recover {
+					w.Header().Set("Retry-After", "60")
+				}
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			t.Cleanup(srv.Close)
+			_, err := fetchFederationJoinMetadata(t.Context(), federationJoinBundle{HubURL: srv.URL, HubProjectID: 1, Token: "token"})
+			if tc.recover {
+				require.NoError(t, err)
+			} else {
+				var cliErr *cliError
+				require.ErrorAs(t, err, &cliErr)
+				require.Equal(t, tc.code, cliErr.Code)
+				require.Contains(t, cliErr.Message, tc.message)
+				if tc.code == api.CodeServerBusy {
+					require.Equal(t, ExitDaemonUnavail, cliErr.ExitCode)
+				}
+			}
+			require.Equal(t, tc.attempts, attempts.Load())
+		})
+	}
+}
+
 func TestFederationStatusJSONOutput(t *testing.T) {
 	env, project := setupFederationStatusCLIState(t)
 
