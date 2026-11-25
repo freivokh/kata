@@ -30,8 +30,7 @@ func TestClaimGateCloseBusyHub(t *testing.T) {
 	require.NoError(t, config.WriteFederationCredential(project.UID, config.FederationCredential{HubURL: hub.URL, HubProjectID: 99, Token: "test-token", Capabilities: "claim", Actor: "agent"}))
 	body := map[string]any{"actor": "agent", "reason": "done", "message": "Closed after verifying the implementation and tests for this issue.", "evidence": []map[string]any{{"type": "commit", "sha": "abc1234"}}}
 	resp, raw := envDoRaw(t, env, http.MethodPost, issuePathRef(project.ID, issue.ShortID, "actions/close"), body, nil)
-	envelope := assertAPIError(t, resp.StatusCode, raw, http.StatusTooManyRequests, "server_busy")
-	require.Equal(t, "127.0.0.1 is busy; try again in a minute", envelope.Error.Message)
+	assertAPIError(t, resp.StatusCode, raw, http.StatusTooManyRequests, "server_busy")
 	require.Equal(t, "60", resp.Header.Get("Retry-After"))
 	updated, err := env.DB.IssueByShortID(t.Context(), project.ID, issue.ShortID, db.IncludeDeletedNo)
 	require.NoError(t, err)

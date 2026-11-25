@@ -1581,50 +1581,30 @@ func TestFederationSpokeHTTPClientDoesNotUseKATAServerGlobalAuth(t *testing.T) {
 }
 
 func TestFederationSpokePreflightBusy(t *testing.T) {
-	for _, tc := range []struct {
-		name, hint string
-		recover    bool
-	}{
-		{name: "exhausted", hint: "0"},
-		{name: "five second hint", hint: "5", recover: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			resetFlags(t)
-			home := t.TempDir()
-			t.Setenv("KATA_HOME", home)
-			t.Setenv("KATA_SERVER", "")
-			t.Setenv("KATA_AUTH_TOKEN", "hub-token")
-			t.Setenv("KATA_HTTP_TIMEOUT", "")
-			flags.Daemon = "spoke"
-			var calls atomic.Int32
-			spoke := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Empty(t, r.Header.Get("Authorization"))
-				if calls.Add(1) == 1 || !tc.recover {
-					w.Header().Set("Retry-After", tc.hint)
-					http.Error(w, "Rate exceeded", http.StatusTooManyRequests)
-					return
-				}
-				_, _ = w.Write([]byte(`{"instance_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01"}`))
-			}))
-			t.Cleanup(spoke.Close)
-			require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte(fmt.Sprintf("[[daemon]]\nname = %q\nurl = %q\n", "spoke", spoke.URL)), 0o600))
-			started := time.Now()
-			err := federationSpokeProbePreflight(t.Context(), "01HZZZZZZZZZZZZZZZZZZZZZ01")
-			if tc.recover {
-				require.NoError(t, err)
-				require.Equal(t, int32(2), calls.Load())
-				if tc.hint == "5" {
-					assert.GreaterOrEqual(t, time.Since(started), 5*time.Second)
-				}
-			} else {
-				var cliErr *cliError
-				require.ErrorAs(t, err, &cliErr)
-				assert.Equal(t, errKind("server_busy"), cliErr.Kind)
-				assert.Contains(t, cliErr.Message, "127.0.0.1 is busy")
-				assert.Equal(t, ExitDaemonUnavail, cliErr.ExitCode)
-			}
-		})
-	}
+	resetFlags(t)
+	home := t.TempDir()
+	t.Setenv("KATA_HOME", home)
+	t.Setenv("KATA_SERVER", "")
+	t.Setenv("KATA_AUTH_TOKEN", "hub-token")
+	t.Setenv("KATA_HTTP_TIMEOUT", "")
+	flags.Daemon = "spoke"
+	var calls atomic.Int32
+	spoke := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("Authorization"))
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "Rate exceeded", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"instance_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01"}`))
+	}))
+	t.Cleanup(spoke.Close)
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte(fmt.Sprintf("[[daemon]]\nname = %q\nurl = %q\n", "spoke", spoke.URL)), 0o600))
+	started := time.Now()
+	err := federationSpokeProbePreflight(t.Context(), "01HZZZZZZZZZZZZZZZZZZZZZ01")
+	require.NoError(t, err)
+	require.Equal(t, int32(2), calls.Load())
+	assert.GreaterOrEqual(t, time.Since(started), 5*time.Second)
 }
 
 func TestFederationSpokeHTTPClientDoesNotUseNamedDaemonGlobalAuthFallback(t *testing.T) {

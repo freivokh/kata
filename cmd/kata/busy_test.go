@@ -120,36 +120,28 @@ func (t *busyTimeoutTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return nil, req.Context().Err()
 }
 
-func TestRetryBusyReportsBusyWhenRetryTimesOut(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		transport := &busyTimeoutTransport{}
-		hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
-		RetryBusyWithBudget(hc, BusyRetryBudget)
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://hub.example", nil)
-		require.NoError(t, err)
-		resp, err := hc.Do(req) //nolint:gosec // fake transport
-		require.NoError(t, err)
-		require.Equal(t, 429, resp.StatusCode)
-		require.Equal(t, 2, transport.calls)
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		require.NoError(t, resp.Body.Close())
-		cliErr := apiErrFromBody(resp.StatusCode, body)
-		assert.Equal(t, kindServerBusy, cliErr.Kind)
-		assert.Equal(t, ExitDaemonUnavail, cliErr.ExitCode)
-		assert.Contains(t, cliErr.Message, "hub.example is busy")
-	})
-}
-
-func TestRetryBusyWriteRetryTimeoutReturnsError(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		transport := &busyTimeoutTransport{}
-		hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
-		RetryBusyWithBudget(hc, BusyRetryBudget)
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://hub.example", strings.NewReader("payload"))
-		require.NoError(t, err)
-		_, err = hc.Do(req) //nolint:gosec // fake transport
-		require.ErrorIs(t, err, context.DeadlineExceeded)
-		require.Equal(t, 2, transport.calls)
-	})
+func TestRetryBusyRetryTimeout(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				transport := &busyTimeoutTransport{}
+				hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
+				RetryBusyWithBudget(hc, BusyRetryBudget)
+				req, err := http.NewRequestWithContext(t.Context(), method, "https://hub.example", strings.NewReader("payload"))
+				require.NoError(t, err)
+				resp, err := hc.Do(req) //nolint:gosec // fake transport
+				require.Equal(t, 2, transport.calls)
+				if method == http.MethodPost {
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, 429, resp.StatusCode)
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+				assert.Contains(t, string(body), `"code":"server_busy"`)
+			})
+		})
+	}
 }

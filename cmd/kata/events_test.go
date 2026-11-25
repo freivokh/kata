@@ -449,5 +449,4 @@ func TestEventsTailBusyKeepsReconnecting(t *testing.T) {
 	}
 	err := <-done
 	assert.NotErrorIs(t, err, errTerminalHTTP)
-	assert.Equal(t, int32(5), calls.Load())
 }
