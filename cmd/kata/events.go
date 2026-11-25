@@ -18,6 +18,7 @@ import (
 	"github.com/cenkalti/backoff/v7"
 	"github.com/spf13/cobra"
 	"go.kenn.io/kata/internal/authorname"
+	clientpkg "go.kenn.io/kata/internal/client"
 	kataclient "go.kenn.io/kata/pkg/client"
 	"go.kenn.io/kata/pkg/client/generated"
 )
@@ -314,6 +315,10 @@ func runEventsTail(cmd *cobra.Command, opts eventsTailOptions) error {
 		}
 		res, sErr := streamOnce(ctx, apiClient, query, cursor, out, mode)
 		streamErr = sErr
+		var busy *clientpkg.BusyStreamError
+		if errors.As(sErr, &busy) {
+			return struct{}{}, backoff.RetryAfter(busy.RetryAfter, sErr)
+		}
 		if errors.Is(sErr, errTerminalHTTP) {
 			return struct{}{}, backoff.Permanent(sErr)
 		}

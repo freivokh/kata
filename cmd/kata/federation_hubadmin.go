@@ -258,7 +258,7 @@ func ambiguousHubCatalogOriginError() error {
 
 // hubAdminClient builds an HTTP client for the resolved hub admin auth.
 func hubAdminClient(ctx context.Context, a hubAdminAuth) (*http.Client, error) {
-	opts := clientpkg.Opts{Timeout: envHTTPTimeout(defaultHTTPTimeout), AllowInsecure: a.allowInsecure}
+	opts := clientpkg.Opts{Timeout: envHTTPTimeout(clientpkg.BusyRetryBudget), AllowInsecure: a.allowInsecure}
 	auth, err := config.ReadAuthConfigForPolicy()
 	if err != nil {
 		auth.TrustPrivateNetwork = config.EnvTruthy("KATA_TRUST_PRIVATE_NETWORK")

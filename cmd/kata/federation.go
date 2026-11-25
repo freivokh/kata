@@ -1463,7 +1463,7 @@ type federationJoinBundle struct {
 
 var fetchFederationJoinMetadata = func(ctx context.Context, bundle federationJoinBundle) (api.ProjectFederationBody, error) {
 	client, err := hubclient.NewClient(ctx, bundle.HubURL, bundle.Token,
-		clientpkg.Opts{Timeout: envHTTPTimeout(defaultHTTPTimeout), AllowInsecure: bundle.AllowInsecure, FederationSigning: bundle.Signing})
+		clientpkg.Opts{Timeout: envHTTPTimeout(clientpkg.BusyRetryBudget), AllowInsecure: bundle.AllowInsecure, FederationSigning: bundle.Signing})
 	if err != nil {
 		return api.ProjectFederationBody{}, err
 	}

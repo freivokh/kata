@@ -2,9 +2,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -28,21 +30,33 @@ type ErrorEnvelope struct {
 
 const CodeServerBusy = "server_busy"
 
-// BusyRefusal identifies a capacity refusal and names the responsible host.
-func BusyRefusal(status int, body []byte, host string) (string, bool) {
-	if status != http.StatusTooManyRequests {
-		return "", false
-	}
+func busyRefusal(body []byte, host string) (string, string, bool) {
 	var envelope ErrorEnvelope
 	_ = json.Unmarshal(body, &envelope)
 	switch strings.TrimSpace(envelope.Error.Code) {
 	case CodeServerBusy:
-		return envelope.Error.Message, true
+		return envelope.Error.Message, envelope.Error.Code, true
 	case "", "admission_limited":
-		return host + " is busy; try again in a minute", true
+		return host + " is busy; try again in a minute", envelope.Error.Code, true
 	default:
-		return "", false
+		return "", envelope.Error.Code, false
 	}
+}
+
+// InspectBusyResponse reads a bounded error prefix and restores it for the caller.
+func InspectBusyResponse(resp *http.Response, host string) (string, string, bool) {
+	if resp == nil || resp.StatusCode != http.StatusTooManyRequests || resp.Body == nil {
+		return "", "", false
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(body), resp.Body), resp.Body}
+	if err != nil {
+		return "", "", false
+	}
+	return busyRefusal(body, host)
 }
 
 // APIError is the Go representation that handlers return; satisfies Huma's

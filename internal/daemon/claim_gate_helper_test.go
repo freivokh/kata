@@ -1,8 +1,11 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -546,4 +549,34 @@ func TestRequireDeletedHistoryAccessMapsRefusalsToNotFoundAndKeepsHubErrors(t *t
 			assertClaimGateHelperAPIError(t, err, tt.wantStatus, tt.wantCode)
 		})
 	}
+}
+
+type showViolationsFailureStore struct{ db.Storage }
+
+func (s showViolationsFailureStore) UnresolvedClaimViolationsForIssue(context.Context, int64, string, int) ([]db.ClaimViolationSummary, int64, error) {
+	return nil, 0, errors.New("local claim read failed")
+}
+
+func TestShowReportsLocalFailureAfterBusyRefresh(t *testing.T) {
+	store := openClaimGateHelperDB(t)
+	project, issue := createClaimGateHelperIssue(t, store)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte("Rate exceeded."))
+	}))
+	t.Cleanup(hub.Close)
+	enableClaimGateHelperSpoke(t, store, project, hub.URL, 99)
+	server := NewServer(ServerConfig{DB: showViolationsFailureStore{Storage: store}})
+	t.Cleanup(func() { require.NoError(t, server.Close()) })
+	endpoint := httptest.NewServer(server.Handler())
+	t.Cleanup(endpoint.Close)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("%s/api/v1/projects/%d/issues/%s", endpoint.URL, project.ID, issue.ShortID), nil)
+	require.NoError(t, err)
+	resp, err := endpoint.Client().Do(req) //nolint:gosec // loopback fixture
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode, string(body))
+	assert.NotContains(t, string(body), "server_busy")
 }

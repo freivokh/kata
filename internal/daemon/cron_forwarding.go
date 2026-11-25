@@ -195,6 +195,9 @@ func cronHubRequest(ctx context.Context, client *http.Client, method, path strin
 	req.Header.Set(db.EventFeaturesHeader, db.SupportedEventFeatures)
 	response, err := client.Do(req)
 	if err != nil {
+		if busy := forwardedHubBusy(err); busy != nil {
+			return busy
+		}
 		if method == http.MethodGet {
 			return cronForwardUnavailable("hub metadata is unavailable")
 		}

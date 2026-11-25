@@ -1,25 +1,15 @@
 package daemon
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"io"
-	"net"
+	"errors"
 	"net/http"
-	"sync"
 
+	"github.com/danielgtaylor/huma/v2"
 	"go.kenn.io/kata/internal/api"
 )
 
 type hubBusyKey struct{}
-
-type hubBusyRecord struct {
-	mu         sync.Mutex
-	message    string
-	retryAfter string
-}
-
 type hubBusyTransport struct{ next http.RoundTripper }
 
 func observeHubBusy(c *http.Client) {
@@ -32,26 +22,19 @@ func observeHubBusy(c *http.Client) {
 
 func (t hubBusyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.next.RoundTrip(req)
-	record, _ := req.Context().Value(hubBusyKey{}).(*hubBusyRecord)
-	if err != nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests || resp.Body == nil || record == nil {
+	if err != nil || req.Context().Value(hubBusyKey{}) == nil {
 		return resp, err
 	}
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body = struct {
-		io.Reader
-		io.Closer
-	}{io.MultiReader(bytes.NewReader(body), resp.Body), resp.Body}
-	if readErr != nil {
+	message, _, busy := api.InspectBusyResponse(resp, req.URL.Hostname())
+	if !busy {
 		return resp, nil
 	}
-	if message, busy := api.BusyRefusal(resp.StatusCode, body, req.URL.Hostname()); busy {
-		record.mu.Lock()
-		if record.message == "" {
-			record.message, record.retryAfter = message, resp.Header.Get("Retry-After")
-		}
-		record.mu.Unlock()
+	_ = resp.Body.Close()
+	failure := api.NewError(http.StatusTooManyRequests, api.CodeServerBusy, message, "", nil)
+	if hint := resp.Header.Get("Retry-After"); hint != "" {
+		return nil, huma.ErrorWithHeaders(failure, http.Header{"Retry-After": []string{hint}})
 	}
-	return resp, nil
+	return nil, failure
 }
 
 func (t hubBusyTransport) CloseIdleConnections() {
@@ -62,56 +45,14 @@ func (t hubBusyTransport) CloseIdleConnections() {
 
 func withHubBusy(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		record := &hubBusyRecord{}
-		next.ServeHTTP(&hubBusyWriter{ResponseWriter: w, record: record}, r.WithContext(context.WithValue(r.Context(), hubBusyKey{}, record)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), hubBusyKey{}, true)))
 	})
 }
 
-type hubBusyWriter struct {
-	http.ResponseWriter
-	record   *hubBusyRecord
-	wrote    bool
-	replaced bool
-}
-
-func (w *hubBusyWriter) WriteHeader(status int) {
-	if w.wrote {
-		return
+func forwardedHubBusy(err error) error {
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusTooManyRequests && apiErr.Code == api.CodeServerBusy {
+		return err
 	}
-	w.wrote = true
-	w.record.mu.Lock()
-	message, retryAfter := w.record.message, w.record.retryAfter
-	w.record.mu.Unlock()
-	if status >= 400 && message != "" {
-		w.replaced = true
-		w.Header().Del("Content-Length")
-		w.Header().Del("Content-Encoding")
-		if retryAfter != "" {
-			w.Header().Set("Retry-After", retryAfter)
-		}
-		api.WriteEnvelope(w.ResponseWriter, http.StatusTooManyRequests, api.CodeServerBusy, message)
-		return
-	}
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *hubBusyWriter) Write(p []byte) (int, error) {
-	if !w.wrote {
-		w.WriteHeader(http.StatusOK)
-	}
-	if w.replaced {
-		return len(p), nil
-	}
-	return w.ResponseWriter.Write(p)
-}
-
-func (w *hubBusyWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
-func (w *hubBusyWriter) Flush() {
-	if !w.wrote {
-		w.WriteHeader(http.StatusOK)
-	}
-	_ = http.NewResponseController(w.ResponseWriter).Flush()
-}
-func (w *hubBusyWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return http.NewResponseController(w.ResponseWriter).Hijack()
+	return nil
 }

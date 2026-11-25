@@ -3522,9 +3522,13 @@ func TestFederationEnrollCLISignedJoinBindsSpoke(t *testing.T) {
 }
 
 func TestFederationCloseBusyHub(t *testing.T) {
-	for _, mode := range []string{"recovers", "busy", "rule"} {
+	for _, mode := range []string{"recovers", "busy", "rule", "five second hint"} {
 		t.Run(mode, func(t *testing.T) {
-			t.Setenv("KATA_HTTP_TIMEOUT", "2s")
+			timeout := "2s"
+			if mode == "five second hint" {
+				timeout = ""
+			}
+			t.Setenv("KATA_HTTP_TIMEOUT", timeout)
 			env, dir, pid, ref := setupWorkspaceWithIssue(t, "close target")
 			project, err := env.DB.ProjectByID(t.Context(), pid)
 			require.NoError(t, err)
@@ -3537,6 +3541,9 @@ func TestFederationCloseBusyHub(t *testing.T) {
 					return
 				}
 				if mode == "busy" || call == 1 {
+					if mode == "five second hint" {
+						w.Header().Set("Retry-After", "5")
+					}
 					w.WriteHeader(429)
 					_, _ = w.Write([]byte("Rate exceeded."))
 					return
@@ -3548,7 +3555,7 @@ func TestFederationCloseBusyHub(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, config.WriteFederationCredential(project.UID, config.FederationCredential{HubURL: hub.URL, HubProjectID: 99, Token: "test-token", Capabilities: "claim", Actor: "agent"}))
 			_, err = runCmdOutput(t, env, "close", ref, "--workspace", dir, "--done", "--message", "Completed the requested work and checked the result.", "--commit", "abc1234")
-			if mode == "recovers" {
+			if mode == "recovers" || mode == "five second hint" {
 				require.NoError(t, err)
 			} else {
 				var cliErr *cliError
@@ -3569,7 +3576,7 @@ func TestFederationCloseBusyHub(t *testing.T) {
 			}
 			issue, err := env.DB.IssueByShortID(t.Context(), pid, ref, db.IncludeDeletedNo)
 			require.NoError(t, err)
-			if mode == "recovers" {
+			if mode == "recovers" || mode == "five second hint" {
 				assert.Equal(t, "closed", issue.Status)
 			} else {
 				assert.Equal(t, "open", issue.Status)

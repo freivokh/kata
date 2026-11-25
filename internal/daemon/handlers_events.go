@@ -1310,6 +1310,9 @@ func requireDeletedHistoryAccess(ctx context.Context, cfg ServerConfig, projectI
 // refuseDeletedHistory maps an API error below 500 (other than a hub error) to
 // notFound and passes every other error, including nil, through.
 func refuseDeletedHistory(err, notFound error) error {
+	if busy := forwardedHubBusy(err); busy != nil {
+		return busy
+	}
 	var apiErr *api.APIError
 	if errors.As(err, &apiErr) && apiErr.Status < http.StatusInternalServerError &&
 		apiErr.Code != "hub_claim_failed" {
