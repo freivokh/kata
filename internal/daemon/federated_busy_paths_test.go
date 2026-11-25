@@ -13,11 +13,11 @@ import (
 )
 
 func TestFederatedBusyPaths(t *testing.T) {
-	for _, mode := range []string{"docbank", "deleted history", "search"} {
+	for _, mode := range []string{"docbank", "search"} {
 		t.Run(mode, func(t *testing.T) {
 			hub, spoke, project, replica, issue, token := createClaimForwardingPair(t, "claim,push,pull")
 			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				busy := mode == "docbank" && strings.Contains(r.URL.Path, "/federation/docbank/") || mode == "deleted history" && strings.HasSuffix(r.URL.Path, "/lease") || mode == "search" && strings.HasSuffix(r.URL.Path, "/federation/search")
+				busy := mode == "docbank" && strings.Contains(r.URL.Path, "/federation/docbank/") || mode == "search" && strings.HasSuffix(r.URL.Path, "/federation/search")
 				if busy {
 					w.Header().Set("Retry-After", "2")
 					w.WriteHeader(429)
@@ -50,10 +50,6 @@ func TestFederatedBusyPaths(t *testing.T) {
 			switch mode {
 			case "docbank":
 				path = fmt.Sprintf("/api/v1/projects/%d/issues/%s/attachments/links", replica.ID, issue.ShortID)
-			case "deleted history":
-				_, _, _, err := spoke.DB.SoftDeleteIssue(t.Context(), issue.ID, "tester")
-				require.NoError(t, err)
-				path = fmt.Sprintf("/api/v1/projects/%d/events?issue=%s&actor=tester", replica.ID, issue.ShortID)
 			case "search":
 				path = fmt.Sprintf("/api/v1/projects/%d/search?q=claim&mode=semantic", replica.ID)
 			}

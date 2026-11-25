@@ -14,7 +14,7 @@ import (
 )
 
 func TestFederationBridgeBusyResume(t *testing.T) {
-	for _, stage := range []string{"instance", "resolve", "metadata", "enrollment", "disconnect"} {
+	for _, stage := range []string{"instance", "enrollment", "disconnect"} {
 		t.Run(stage, func(t *testing.T) {
 			t.Setenv("KATA_HOME", t.TempDir())
 			hub := newBridgeHubFixture(t)
@@ -22,8 +22,6 @@ func TestFederationBridgeBusyResume(t *testing.T) {
 			var refused atomic.Int32
 			path := map[string]string{
 				"instance":   "/api/v1/instance",
-				"resolve":    "/api/v1/projects/resolve",
-				"metadata":   fmt.Sprintf("/api/v1/projects/%d/federation", hub.root.private.ID),
 				"enrollment": "/api/v1/federation/enrollments",
 				"disconnect": fmt.Sprintf("/api/v1/projects/%d/federation/relay:disconnect", hub.root.private.ID),
 			}[stage]

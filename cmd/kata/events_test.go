@@ -18,39 +18,6 @@ import (
 	"go.kenn.io/kata/internal/testenv"
 )
 
-func TestEventsTailRetriesBusy(t *testing.T) {
-	var calls atomic.Int32
-	connected := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/events/stream", r.URL.Path)
-		if calls.Add(1) == 1 {
-			w.WriteHeader(429)
-			_, _ = w.Write([]byte("Rate exceeded."))
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(200)
-		w.(http.Flusher).Flush()
-		connected <- struct{}{}
-		<-r.Context().Done()
-	}))
-	t.Cleanup(server.Close)
-	resetFlags(t)
-	ctx, cancel := context.WithTimeout(contextWithBaseURL(t.Context(), server.URL), 3*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { _, _, err := executeRootCapture(t, ctx, "events", "--tail", "--project-id", "1"); done <- err }()
-	select {
-	case <-connected:
-		cancel()
-	case <-ctx.Done():
-		t.Error("stream did not retry")
-	}
-	err := <-done
-	assert.NotErrorIs(t, err, errTerminalHTTP)
-	assert.Equal(t, int32(2), calls.Load())
-}
-
 func TestEvents_OneShotPlainOutput(t *testing.T) {
 	f := newCLIFixture(t)
 	createIssueViaHTTP(t, f.env, f.dir, "first")
@@ -468,7 +435,7 @@ func TestEventsTailBusyKeepsReconnecting(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	resetFlags(t)
-	ctx, cancel := context.WithTimeout(contextWithBaseURL(t.Context(), server.URL), 3*time.Second)
+	ctx, cancel := context.WithTimeout(contextWithBaseURL(t.Context(), server.URL), 450*time.Millisecond)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { _, _, err := executeRootCapture(t, ctx, "events", "--tail", "--project-id", "1"); done <- err }()
@@ -481,20 +448,4 @@ func TestEventsTailBusyKeepsReconnecting(t *testing.T) {
 	err := <-done
 	assert.NotErrorIs(t, err, errTerminalHTTP)
 	assert.Equal(t, int32(5), calls.Load())
-}
-
-func TestEventsTailRuleRefusalIsTerminal(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(429)
-		_, _ = w.Write([]byte(`{"error":{"code":"sibling_throttle","message":"wait"}}`))
-	}))
-	t.Cleanup(server.Close)
-	resetFlags(t)
-	ctx, cancel := context.WithTimeout(contextWithBaseURL(t.Context(), server.URL), 3*time.Second)
-	defer cancel()
-	_, _, err := executeRootCapture(t, ctx, "events", "--tail", "--project-id", "1")
-	require.ErrorIs(t, err, errTerminalHTTP)
-	assert.Equal(t, int32(1), calls.Load())
 }

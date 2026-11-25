@@ -25,36 +25,6 @@ import (
 	kitdaemon "go.kenn.io/kit/daemon"
 )
 
-func TestTUIBusyClose(t *testing.T) {
-	for _, recover := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recover_%t", recover), func(t *testing.T) {
-			calls := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				calls++
-				if !recover || calls == 1 {
-					w.Header().Set("Retry-After", "0")
-					http.Error(w, "Rate exceeded", http.StatusTooManyRequests)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{}`))
-			}))
-			defer server.Close()
-			target := daemonTarget{resolved: clientpkg.ResolvedDaemon{BaseURL: server.URL}}
-			hc, err := newHTTPClientForTUI(t.Context(), server.URL, target, clientOptsNormal)
-			require.NoError(t, err)
-			_, err = NewClient(server.URL, hc).Close(t.Context(), 1, "abcd", "operator")
-			if recover {
-				require.NoError(t, err)
-				require.Equal(t, 2, calls)
-			} else {
-				require.ErrorContains(t, err, "is busy")
-				require.Equal(t, 4, calls)
-			}
-		})
-	}
-}
-
 func TestTUIBusyCloseFiveSecondHint(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

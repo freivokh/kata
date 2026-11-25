@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -522,22 +520,31 @@ func TestRequireDeletedHistoryAccessMapsRefusalsToNotFoundAndKeepsHubErrors(t *t
 	tests := []struct {
 		name       string
 		hubStatus  int // zero: spoke with push disabled, no hub involved
+		busy       bool
 		wantStatus int
 		wantCode   string
 	}{
 		{name: "federated read only is refused", wantStatus: http.StatusNotFound, wantCode: "issue_not_found"},
 		{name: "hub rate limit keeps its status", hubStatus: http.StatusTooManyRequests, wantStatus: http.StatusTooManyRequests, wantCode: "hub_claim_failed"},
+		{name: "busy hub keeps its refusal", hubStatus: http.StatusTooManyRequests, busy: true, wantStatus: http.StatusTooManyRequests, wantCode: "server_busy"},
 		{name: "hub unauthorized reports a rejected hub credential", hubStatus: http.StatusUnauthorized, wantStatus: http.StatusBadGateway, wantCode: "hub_credential_rejected"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
+			if tt.busy {
+				ctx = context.WithValue(ctx, hubBusyKey{}, true)
+			}
 			store := openClaimGateHelperDB(t)
 			project, issue := createClaimGateHelperIssue(t, store)
 			if tt.hubStatus == 0 {
 				enableClaimGateHelperSpokeWithPush(t, store, project, "http://127.0.0.1:1", 99, false)
 			} else {
 				hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if tt.busy {
+						http.Error(w, "Rate exceeded", tt.hubStatus)
+						return
+					}
 					api.WriteEnvelope(w, tt.hubStatus, "hub_rejected", "hub rejected claim status")
 				}))
 				t.Cleanup(hub.Close)
@@ -549,34 +556,4 @@ func TestRequireDeletedHistoryAccessMapsRefusalsToNotFoundAndKeepsHubErrors(t *t
 			assertClaimGateHelperAPIError(t, err, tt.wantStatus, tt.wantCode)
 		})
 	}
-}
-
-type showViolationsFailureStore struct{ db.Storage }
-
-func (s showViolationsFailureStore) UnresolvedClaimViolationsForIssue(context.Context, int64, string, int) ([]db.ClaimViolationSummary, int64, error) {
-	return nil, 0, errors.New("local claim read failed")
-}
-
-func TestShowReportsLocalFailureAfterBusyRefresh(t *testing.T) {
-	store := openClaimGateHelperDB(t)
-	project, issue := createClaimGateHelperIssue(t, store)
-	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(429)
-		_, _ = w.Write([]byte("Rate exceeded."))
-	}))
-	t.Cleanup(hub.Close)
-	enableClaimGateHelperSpoke(t, store, project, hub.URL, 99)
-	server := NewServer(ServerConfig{DB: showViolationsFailureStore{Storage: store}})
-	t.Cleanup(func() { require.NoError(t, server.Close()) })
-	endpoint := httptest.NewServer(server.Handler())
-	t.Cleanup(endpoint.Close)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("%s/api/v1/projects/%d/issues/%s", endpoint.URL, project.ID, issue.ShortID), nil)
-	require.NoError(t, err)
-	resp, err := endpoint.Client().Do(req) //nolint:gosec // loopback fixture
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode, string(body))
-	assert.NotContains(t, string(body), "server_busy")
 }

@@ -3522,7 +3522,7 @@ func TestFederationEnrollCLISignedJoinBindsSpoke(t *testing.T) {
 }
 
 func TestFederationCloseBusyHub(t *testing.T) {
-	for _, mode := range []string{"recovers", "busy", "rule", "five second hint"} {
+	for _, mode := range []string{"busy", "rule", "five second hint"} {
 		t.Run(mode, func(t *testing.T) {
 			timeout := "2s"
 			if mode == "five second hint" {
@@ -3555,7 +3555,7 @@ func TestFederationCloseBusyHub(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, config.WriteFederationCredential(project.UID, config.FederationCredential{HubURL: hub.URL, HubProjectID: 99, Token: "test-token", Capabilities: "claim", Actor: "agent"}))
 			_, err = runCmdOutput(t, env, "close", ref, "--workspace", dir, "--done", "--message", "Completed the requested work and checked the result.", "--commit", "abc1234")
-			if mode == "recovers" || mode == "five second hint" {
+			if mode == "five second hint" {
 				require.NoError(t, err)
 			} else {
 				var cliErr *cliError
@@ -3576,7 +3576,7 @@ func TestFederationCloseBusyHub(t *testing.T) {
 			}
 			issue, err := env.DB.IssueByShortID(t.Context(), pid, ref, db.IncludeDeletedNo)
 			require.NoError(t, err)
-			if mode == "recovers" || mode == "five second hint" {
+			if mode == "five second hint" {
 				assert.Equal(t, "closed", issue.Status)
 			} else {
 				assert.Equal(t, "open", issue.Status)

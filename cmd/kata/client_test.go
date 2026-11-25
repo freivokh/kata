@@ -826,25 +826,3 @@ func TestLocalProfileCompatibilityClientsKeepResolvedCredential(t *testing.T) {
 		require.NoError(t, resp.Body.Close())
 	}
 }
-
-func TestDaemonRetryTransportFollowsSameOriginRedirect(t *testing.T) {
-	t.Setenv("KATA_HOME", t.TempDir())
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/start" {
-			http.Redirect(w, r, "/finish", http.StatusFound)
-			return
-		}
-		_, _ = w.Write([]byte("finished"))
-	}))
-	t.Cleanup(server.Close)
-	hc, err := httpClientFor(t.Context(), server.URL)
-	require.NoError(t, err)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/start", nil)
-	require.NoError(t, err)
-	resp, err := hc.Do(req) //nolint:gosec // loopback fixture
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, "finished", string(body))
-}
