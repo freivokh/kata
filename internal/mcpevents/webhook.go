@@ -460,8 +460,5 @@ func (w *WebhookClient) Send(ctx context.Context, callback, eventID, subscriptio
 }
 
 func webhookRetryAfter(value string, now time.Time) time.Duration {
-	if strings.HasPrefix(value, "+") {
-		return 0
-	}
 	return httpurl.ParseRetryAfter(value, now, webhookRetryAfterLimit, webhookRetryAfterLimit)
 }

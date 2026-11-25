@@ -9,21 +9,27 @@ import (
 
 // ParseRetryAfter parses a delay or HTTP date, bounding both to maxDelay.
 func ParseRetryAfter(value string, now time.Time, maxDelay, overflow time.Duration) time.Duration {
+	delay, _ := ParseRetryAfterValid(value, now, maxDelay, overflow)
+	return delay
+}
+
+// ParseRetryAfterValid also reports whether the header contained a valid delay.
+func ParseRetryAfterValid(value string, now time.Time, maxDelay, overflow time.Duration) (time.Duration, bool) {
 	if value == "" || value != strings.TrimSpace(value) || strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") {
-		return 0
+		return 0, false
 	}
 	if seconds, err := strconv.ParseUint(value, 10, 64); err == nil {
 		if seconds > uint64(maxDelay/time.Second) {
-			return maxDelay
+			return maxDelay, true
 		}
-		return time.Duration(seconds) * time.Second
+		return time.Duration(seconds) * time.Second, true
 	} else if strings.IndexFunc(value, func(c rune) bool { return c < '0' || c > '9' }) == -1 {
-		return overflow
+		return overflow, true
 	}
 	if delay, ok := RetryAfterWait(value, now); ok {
-		return min(max(delay, 0), maxDelay)
+		return min(max(delay, 0), maxDelay), true
 	}
-	return 0
+	return 0, false
 }
 
 // RetryAfterWait parses the unbounded header and reports whether it was valid.

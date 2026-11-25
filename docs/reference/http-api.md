@@ -1196,6 +1196,8 @@ exists. On uploads and links, reuse returns `attachment_invalid` if the daemon c
 /api/v1/projects/{project_id}/issues/{ref}/attachments/{attachment_id}/content`
 streams the file back. `POST /api/v1/projects/{project_id}/issues/{ref}/attachments/links` saves a reference to an existing Docbank file version. Its JSON body takes exactly one of `node_id` or `path`, an optional `version_id`, and `actor`. Set `reuse_existing` to `true` to return the smallest existing attachment ID for that version without adding another reference; if no reference exists, the route creates one. Omitting this field creates a new reference. Local routes return `docbank_not_configured` when the daemon has no Docbank, and `503 docbank_key_unavailable` when the daemon cannot resolve its Docbank key. See [Issue attachments](../guide/attachments.md).
 
+An upload returns `502 attachment_upload_unlinked` if Docbank stored the file but the hub stayed busy during the final claim check. The error names the stored version; find it in Docbank and link it to the issue.
+
 Federation transport uses these routes under `/api/v1/projects/{project_id}/federation/docbank`:
 
 - `GET /capabilities` identifies the project, origin, and protocol version.

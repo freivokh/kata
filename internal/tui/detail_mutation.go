@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"go.kenn.io/kata/internal/client"
 )
 
 // handleMutationKey dispatches the mutation bindings. Close/reopen and
@@ -230,7 +231,7 @@ func (dm detailModel) dispatchClose(api detailAPI) tea.Cmd {
 	}
 	pid, ref, actor, gen := dm.scopePID, dm.issue.ShortID, dm.actor, dm.gen
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), client.BusyRetryBudget)
 		defer cancel()
 		resp, err := api.Close(ctx, pid, ref, actor)
 		return mutationDoneMsg{

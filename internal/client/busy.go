@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	backoff "github.com/cenkalti/backoff/v5"
@@ -62,7 +61,7 @@ func (t busyTransport) CloseIdleConnections() {
 func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var deadline time.Time
 	bo := backoff.NewExponentialBackOff()
-	bo.InitialInterval, bo.MaxInterval, bo.Multiplier, bo.RandomizationFactor = 250*time.Millisecond, time.Second, 2, 0
+	bo.InitialInterval, bo.MaxInterval, bo.Multiplier, bo.RandomizationFactor = 250*time.Millisecond, time.Second, 2, 0.5
 	bo.Reset()
 	request := req
 	for attempt := 0; ; attempt++ {
@@ -85,13 +84,7 @@ func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			resp.Header.Set("Content-Type", "application/json")
 		}
 		delay := bo.NextBackOff()
-		value := resp.Header.Get("Retry-After")
-		hint := httpurl.ParseRetryAfter(value, time.Now(), time.Duration(1<<63-1), time.Duration(1<<63-1))
-		_, valid := httpurl.RetryAfterWait(value, time.Now())
-		if value != strings.TrimSpace(value) || strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") {
-			valid = false
-		}
-		if hint > 0 || valid {
+		if hint, valid := httpurl.ParseRetryAfterValid(resp.Header.Get("Retry-After"), time.Now(), time.Duration(1<<63-1), time.Duration(1<<63-1)); valid {
 			delay = hint
 		}
 		if attempt == 3 || (req.Body != nil && req.GetBody == nil) {

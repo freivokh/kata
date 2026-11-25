@@ -59,7 +59,8 @@ var (
 	) (*http.Client, error) {
 		opts := optsForKind(kind)
 		opts.WorkspaceStart = target.workspaceStart
-		return client.NewHTTPClientForResolved(ctx, target.resolved, opts)
+		hc, err := client.NewHTTPClientForResolved(ctx, target.resolved, opts)
+		return retryBusyTUIClient(hc, err, kind)
 	}
 	bootResolveScopeForTUI         = bootResolveScope
 	bootResolveScopePathFreeForTUI = bootResolveScopePathFree
@@ -308,5 +309,12 @@ func optsForKind(kind clientOptsKind) client.Opts {
 	if kind == clientOptsSSE {
 		return client.Opts{ResponseHeaderTimeout: client.SSEHandshakeTimeout}
 	}
-	return client.Opts{Timeout: defaultHTTPTimeout}
+	return client.Opts{Timeout: client.BusyRetryBudget}
+}
+
+func retryBusyTUIClient(hc *http.Client, err error, kind clientOptsKind) (*http.Client, error) {
+	if err == nil && kind == clientOptsNormal {
+		client.RetryBusy(hc)
+	}
+	return hc, err
 }

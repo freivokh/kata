@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -15,12 +16,14 @@ import (
 	"time"
 	"uuid"
 
+	backoff "github.com/cenkalti/backoff/v5"
 	"github.com/danielgtaylor/huma/v2"
 	"go.kenn.io/kata/internal/api"
 	"go.kenn.io/kata/internal/config"
 	"go.kenn.io/kata/internal/db"
 	"go.kenn.io/kata/internal/docbank"
 	"go.kenn.io/kata/internal/federationsigning"
+	"go.kenn.io/kata/internal/httpurl"
 	"go.kenn.io/kata/internal/metadata"
 	"go.kenn.io/kata/internal/uid"
 )
@@ -118,6 +121,36 @@ func recheckAttachmentWrite(ctx context.Context, cfg ServerConfig, projectID int
 	return requireFederatedIssueClaim(ctx, cfg, projectID, iss, actor)
 }
 
+func recheckUploadedAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment) error {
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval, bo.MaxInterval, bo.Multiplier = 250*time.Millisecond, time.Second, 2
+	bo.Reset()
+	deadline := time.Now().Add(11 * time.Second)
+	for attempt := 0; ; attempt++ {
+		err := recheckAttachmentWrite(ctx, cfg, projectID, iss, actor)
+		if forwardedHubBusy(err) == nil {
+			return err
+		}
+		delay := bo.NextBackOff()
+		var headers huma.HeadersError
+		if errors.As(err, &headers) {
+			if hint, valid := httpurl.RetryAfterWait(headers.GetHeaders().Get("Retry-After"), time.Now()); valid && hint >= 0 {
+				delay = hint
+			}
+		}
+		if attempt == 3 || time.Until(deadline) <= delay {
+			return api.NewError(http.StatusBadGateway, "attachment_upload_unlinked", fmt.Sprintf("file uploaded as Docbank version %s, but the hub was busy before it could be attached", e.DocbankVersion), "Find the uploaded version in Docbank and link it to the issue.", nil)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func registerAttachmentHandlers(h huma.API, cfg ServerConfig) {
 	registerFederatedDocbankHandlers(h, cfg)
 	huma.Register(h, huma.Operation{OperationID: "linkAttachment", Method: "POST", Path: attachmentPath + "/links"}, func(ctx context.Context, in *api.LinkAttachmentRequest) (*api.AddAttachmentResponse, error) {
@@ -169,7 +202,7 @@ func registerAttachmentHandlers(h huma.API, cfg ServerConfig) {
 		if in.ReuseExisting {
 			reuseVersion = &e.DocbankVersion
 		}
-		return saveAttachment(ctx, cfg, iss.ProjectID, iss, actor, e, reuseVersion)
+		return saveAttachment(ctx, cfg, iss.ProjectID, iss, actor, e, reuseVersion, true)
 	})
 	huma.Register(h, huma.Operation{OperationID: "attachmentContent", Method: "GET", Path: attachmentPath + "/{attachment_id}/content", Responses: map[string]*huma.Response{"200": {Description: "Attachment content.", Content: binaryContent("*/*")}}}, func(ctx context.Context, in *api.AttachmentReadRequest) (*huma.StreamResponse, error) {
 		iss, err := activeIssueByRef(ctx, cfg.DB, in.ProjectID, in.Ref, db.IncludeDeletedNo)
@@ -234,7 +267,7 @@ func registerAttachmentHandlers(h huma.API, cfg ServerConfig) {
 	})
 }
 
-func saveAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment, reuseVersion *uuid.UUID) (*api.AddAttachmentResponse, error) {
+func saveAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment, reuseVersion *uuid.UUID, uploaded bool) (*api.AddAttachmentResponse, error) {
 	id, err := uid.New()
 	if err != nil {
 		return nil, internalAPIError(err)
@@ -243,7 +276,11 @@ func saveAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss 
 	if err != nil {
 		return nil, internalAPIError(err)
 	}
-	if err := recheckAttachmentWrite(ctx, cfg, projectID, iss, actor); err != nil {
+	check := func() error { return recheckAttachmentWrite(ctx, cfg, projectID, iss, actor) }
+	if uploaded {
+		check = func() error { return recheckUploadedAttachment(ctx, cfg, projectID, iss, actor, e) }
+	}
+	if err := check(); err != nil {
 		return nil, err
 	}
 	patch := map[string]jsontext.Value{metadata.AttachmentPrefix + id: raw}
