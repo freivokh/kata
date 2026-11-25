@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
-	"net/http/httputil"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +15,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/kata/internal/api"
-	"go.kenn.io/kata/internal/client"
 	"go.kenn.io/kata/internal/config"
 	"go.kenn.io/kata/internal/daemon"
 	"go.kenn.io/kata/internal/db"
@@ -27,65 +23,6 @@ import (
 	"go.kenn.io/kata/internal/testenv"
 	"go.kenn.io/kata/internal/testfix"
 )
-
-func TestAttachmentUploadBusyAfterUpstreamCommit(t *testing.T) {
-	for _, recover := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recover_%t", recover), func(t *testing.T) {
-			f := docbanktest.New(t)
-			hub, spoke, hp, sp, issue, token := createClaimForwardingPair(t, "claim,push,pull", func(cfg *daemon.ServerConfig) {
-				cfg.Docbank = docbank.NewClient(f.Server.URL, func() (string, error) { return "test-key", nil })
-				cfg.DocbankFolder = "/kata"
-			})
-			hubURL, err := url.Parse(hub.URL)
-			require.NoError(t, err)
-			reverse := httputil.NewSingleHostReverseProxy(hubURL)
-			var refusals atomic.Int32
-			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodGet && strings.Contains(strings.Join(f.Requests(), "\n"), "POST /api/v1/uploads") && (!recover || refusals.Load() == 0) {
-					refusals.Add(1)
-					w.Header().Set("Retry-After", "0")
-					http.Error(w, "Rate exceeded", http.StatusTooManyRequests)
-					return
-				}
-				reverse.ServeHTTP(w, r)
-			}))
-			defer proxy.Close()
-			setClaimBindingHubURL(t, spoke, sp.ID, proxy.URL)
-			require.NoError(t, config.WriteFederationCredential(sp.UID, config.FederationCredential{HubURL: proxy.URL, HubProjectID: hp.ID, Token: token, Capabilities: "claim,push,pull"}))
-			client.RetryBusy(spoke.HTTP)
-			endpoint := fmt.Sprintf("/api/v1/projects/%d/issues/%s/attachments", sp.ID, issue.ShortID)
-			status, raw := attachmentUpload(t, spoke, endpoint, "shot.png", strings.NewReader("image bytes"))
-			if recover {
-				require.Equal(t, http.StatusOK, status, string(raw))
-			} else {
-				require.NotEqual(t, http.StatusOK, status, string(raw))
-				require.Contains(t, string(raw), "uploaded")
-				var failure api.ErrorEnvelope
-				require.NoError(t, json.Unmarshal(raw, &failure))
-				parts := strings.Fields(failure.Error.Message)
-				version, err := uuid.Parse(strings.TrimSuffix(parts[5], ","))
-				require.NoError(t, err)
-				content, err := docbank.NewClient(f.Server.URL, func() (string, error) { return "test-key", nil }).Content(t.Context(), version)
-				require.NoError(t, err)
-				bytes, err := io.ReadAll(content.Body)
-				require.NoError(t, content.Body.Close())
-				require.NoError(t, err)
-				require.Equal(t, "image bytes", string(bytes))
-			}
-			stored, err := spoke.DB.IssueByID(t.Context(), issue.ID)
-			require.NoError(t, err)
-			var metadata map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal([]byte(stored.Metadata), &metadata))
-			if recover {
-				require.Len(t, metadata, 1)
-			} else {
-				require.Empty(t, metadata)
-			}
-			require.Greater(t, refusals.Load(), int32(0))
-			require.Equal(t, 1, strings.Count(strings.Join(f.Requests(), "\n"), "POST /api/v1/uploads"))
-		})
-	}
-}
 
 const linkVersion = "6f1c2e8a-2222-4222-8222-222222222222"
 const oldLinkVersion = "6f1c2e8a-2222-4222-8222-222222222223"

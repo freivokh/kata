@@ -1,4 +1,4 @@
-package client
+package main
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func TestRetryBusy(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			hc := &http.Client{Timeout: tc.timeout}
-			RetryBusy(hc)
+			RetryBusyWithBudget(hc, BusyRetryBudget)
 			var body io.Reader = strings.NewReader("payload")
 			if tc.noReplay {
 				body = io.NopCloser(body)
@@ -94,7 +94,7 @@ func TestRetryBusyClosesResponseBeforeDelay(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		body := &busyCloseBody{Reader: strings.NewReader(`{"error":{"code":"server_busy","message":"hub.example is busy"}}`), closed: make(chan struct{})}
 		hc := &http.Client{Transport: busyCloseTransport{body: body}, Timeout: 20 * time.Second}
-		RetryBusy(hc)
+		RetryBusyWithBudget(hc, BusyRetryBudget)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://hub.example", nil)

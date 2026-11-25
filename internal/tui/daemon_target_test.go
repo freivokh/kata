@@ -25,45 +25,6 @@ import (
 	kitdaemon "go.kenn.io/kit/daemon"
 )
 
-func TestTUIBusyCloseFiveSecondHint(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls++
-		if calls == 1 {
-			w.Header().Set("Retry-After", "5")
-			http.Error(w, "Rate exceeded", http.StatusTooManyRequests)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-	target := daemonTarget{resolved: clientpkg.ResolvedDaemon{BaseURL: server.URL}}
-	hc, err := newHTTPClientForTUI(t.Context(), server.URL, target, clientOptsNormal)
-	require.NoError(t, err)
-	result := dispatchLegacyClose(NewClient(server.URL, hc), formTarget{projectID: 1, issueShortID: "abcd"}, "operator")().(mutationDoneMsg)
-	require.NoError(t, result.err)
-	require.Equal(t, 2, calls)
-}
-
-func TestTUIClientKeepsOrdinaryTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
-	}))
-	t.Cleanup(server.Close)
-	target := daemonTarget{resolved: clientpkg.ResolvedDaemon{BaseURL: server.URL}}
-	hc, err := newHTTPClientForTUI(t.Context(), server.URL, target, clientOptsNormal)
-	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(t.Context(), 7*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
-	require.NoError(t, err)
-	started := time.Now()
-	_, err = hc.Do(req)
-	require.Error(t, err)
-	assert.Less(t, time.Since(started), 6*time.Second)
-}
-
 func TestDaemonTargetsFromConfigIncludesConfiguredEntries(t *testing.T) {
 	token := t.Name()
 	file := filepath.Join(t.TempDir(), "missing-credential")

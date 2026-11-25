@@ -6,7 +6,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -22,7 +21,6 @@ import (
 	"go.kenn.io/kata/internal/db"
 	"go.kenn.io/kata/internal/docbank"
 	"go.kenn.io/kata/internal/federationsigning"
-	"go.kenn.io/kata/internal/httpurl"
 	"go.kenn.io/kata/internal/metadata"
 	"go.kenn.io/kata/internal/uid"
 )
@@ -120,31 +118,6 @@ func recheckAttachmentWrite(ctx context.Context, cfg ServerConfig, projectID int
 	return requireFederatedIssueClaim(ctx, cfg, projectID, iss, actor)
 }
 
-func recheckUploadedAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment) error {
-	retry := httpurl.NewBusyRetry(httpurl.BusyRetryBudget)
-	for {
-		err := recheckAttachmentWrite(ctx, cfg, projectID, iss, actor)
-		if forwardedHubBusy(err) == nil {
-			return err
-		}
-		hint := ""
-		if headers, ok := errors.AsType[huma.HeadersError](err); ok {
-			hint = headers.GetHeaders().Get("Retry-After")
-		}
-		delay, retryable := retry.Next(hint)
-		if !retryable {
-			return api.NewError(http.StatusBadGateway, "attachment_upload_unlinked", fmt.Sprintf("file uploaded as Docbank version %s, but the hub was busy before it could be attached", e.DocbankVersion), "Find the uploaded version in Docbank and link it to the issue.", nil)
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-}
-
 func registerAttachmentHandlers(h huma.API, cfg ServerConfig) {
 	registerFederatedDocbankHandlers(h, cfg)
 	huma.Register(h, huma.Operation{OperationID: "linkAttachment", Method: "POST", Path: attachmentPath + "/links"}, func(ctx context.Context, in *api.LinkAttachmentRequest) (*api.AddAttachmentResponse, error) {
@@ -196,7 +169,7 @@ func registerAttachmentHandlers(h huma.API, cfg ServerConfig) {
 		if in.ReuseExisting {
 			reuseVersion = &e.DocbankVersion
 		}
-		return saveAttachment(ctx, cfg, iss.ProjectID, iss, actor, e, reuseVersion, true)
+		return saveAttachment(ctx, cfg, iss.ProjectID, iss, actor, e, reuseVersion)
 	})
 	huma.Register(h, huma.Operation{OperationID: "attachmentContent", Method: "GET", Path: attachmentPath + "/{attachment_id}/content", Responses: map[string]*huma.Response{"200": {Description: "Attachment content.", Content: binaryContent("*/*")}}}, func(ctx context.Context, in *api.AttachmentReadRequest) (*huma.StreamResponse, error) {
 		iss, err := activeIssueByRef(ctx, cfg.DB, in.ProjectID, in.Ref, db.IncludeDeletedNo)
@@ -261,7 +234,7 @@ func registerAttachmentHandlers(h huma.API, cfg ServerConfig) {
 	})
 }
 
-func saveAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment, reuseVersion *uuid.UUID, uploaded bool) (*api.AddAttachmentResponse, error) {
+func saveAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss db.Issue, actor string, e metadata.Attachment, reuseVersion *uuid.UUID) (*api.AddAttachmentResponse, error) {
 	id, err := uid.New()
 	if err != nil {
 		return nil, internalAPIError(err)
@@ -270,11 +243,7 @@ func saveAttachment(ctx context.Context, cfg ServerConfig, projectID int64, iss 
 	if err != nil {
 		return nil, internalAPIError(err)
 	}
-	check := func() error { return recheckAttachmentWrite(ctx, cfg, projectID, iss, actor) }
-	if uploaded {
-		check = func() error { return recheckUploadedAttachment(ctx, cfg, projectID, iss, actor, e) }
-	}
-	if err := check(); err != nil {
+	if err := recheckAttachmentWrite(ctx, cfg, projectID, iss, actor); err != nil {
 		return nil, err
 	}
 	patch := map[string]jsontext.Value{metadata.AttachmentPrefix + id: raw}

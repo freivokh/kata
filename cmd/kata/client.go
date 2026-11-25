@@ -302,11 +302,11 @@ func retryingDaemonHTTPClient(baseURL string, hc *http.Client, stream bool) (*ht
 	if err != nil {
 		return nil, err
 	}
-	budget, _ := client.ParseHTTPTimeout(os.Getenv(client.HTTPTimeoutEnvVar), client.BusyRetryBudget)
+	budget, _ := client.ParseHTTPTimeout(os.Getenv(client.HTTPTimeoutEnvVar), BusyRetryBudget)
 	if stream {
-		client.RetryBusyStream(marked, budget)
+		RetryBusyStream(marked, budget)
 	} else {
-		client.RetryBusyWithBudget(marked, budget)
+		RetryBusyWithBudget(marked, budget)
 	}
 	return marked, nil
 }

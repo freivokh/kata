@@ -18,7 +18,6 @@ import (
 	"github.com/cenkalti/backoff/v7"
 	"github.com/spf13/cobra"
 	"go.kenn.io/kata/internal/authorname"
-	clientpkg "go.kenn.io/kata/internal/client"
 	kataclient "go.kenn.io/kata/pkg/client"
 	"go.kenn.io/kata/pkg/client/generated"
 )
@@ -315,7 +314,7 @@ func runEventsTail(cmd *cobra.Command, opts eventsTailOptions) error {
 		}
 		res, sErr := streamOnce(ctx, apiClient, query, cursor, out, mode)
 		streamErr = sErr
-		if busy, ok := errors.AsType[*clientpkg.BusyStreamError](sErr); ok {
+		if busy, ok := errors.AsType[*BusyStreamError](sErr); ok {
 			return struct{}{}, backoff.RetryAfter(busy.RetryAfter, sErr)
 		}
 		if errors.Is(sErr, errTerminalHTTP) {
@@ -522,3 +521,11 @@ func tailQuery(ctx context.Context, baseURL string, opts eventsTailOptions) (*ge
 	query.ProjectID = &pid
 	return query, nil
 }
+
+// BusyStreamError lets a tail reconnect after a busy response.
+type BusyStreamError struct {
+	Message    string
+	RetryAfter time.Duration
+}
+
+func (e *BusyStreamError) Error() string { return e.Message }

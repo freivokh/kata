@@ -218,16 +218,11 @@ func uploadAttachmentCLI(ctx context.Context, c *http.Client, base string, pid i
 		query.Set("reuse_existing", "true")
 	}
 	endpoint := fmt.Sprintf("%s/api/v1/projects/%d/issues/%s/attachments?", base, pid, url.PathEscape(ref)) + query.Encode()
-	getBody := func() (io.ReadCloser, error) {
-		return io.NopCloser(io.NewSectionReader(file, 0, info.Size())), nil
-	}
-	body, _ := getBody()
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, body)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, file)
 	if err != nil {
 		return "", err
 	}
 	req.ContentLength = info.Size()
-	req.GetBody = getBody
 	req.Header.Set("Content-Type", "application/octet-stream")
 	resp, err := c.Do(req)
 	if err != nil {

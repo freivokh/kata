@@ -1,78 +1,14 @@
-package client
+package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json/v2"
 	"io"
 	"net/http"
 	"time"
 
 	"go.kenn.io/kata/internal/api"
-	"go.kenn.io/kata/internal/httpurl"
 )
-
-// BusyRetryBudget leaves room for a five-second hub hint and a retry.
-const BusyRetryBudget = httpurl.BusyRetryBudget
-
-// RetryBusy retries replayable requests refused by a busy server.
-func RetryBusy(c *http.Client) {
-	RetryBusyWithBudget(c, BusyRetryBudget)
-}
-
-// RetryBusyPerAttempt keeps the client's timeout for each individual attempt.
-func RetryBusyPerAttempt(c *http.Client, budget time.Duration) {
-	if c.Timeout > 0 {
-		next := c.Transport
-		if next == nil {
-			next = http.DefaultTransport
-		}
-		c.Transport = busyAttemptTimeout{next: next, timeout: c.Timeout}
-		c.Timeout = 0
-	}
-	RetryBusyWithBudget(c, budget)
-}
-
-type busyAttemptTimeout struct {
-	next    http.RoundTripper
-	timeout time.Duration
-}
-
-func (t busyAttemptTimeout) RoundTrip(req *http.Request) (*http.Response, error) {
-	ctx, cancel := context.WithTimeout(req.Context(), t.timeout)
-	resp, err := t.next.RoundTrip(req.Clone(ctx))
-	if err != nil {
-		cancel()
-		return resp, err
-	}
-	resp.Body = &busyAttemptBody{ReadCloser: resp.Body, cancel: cancel}
-	return resp, nil
-}
-
-func (t busyAttemptTimeout) CloseIdleConnections() {
-	if closer, ok := t.next.(interface{ CloseIdleConnections() }); ok {
-		closer.CloseIdleConnections()
-	}
-}
-
-type busyAttemptBody struct {
-	io.ReadCloser
-	cancel context.CancelFunc
-}
-
-func (b *busyAttemptBody) Read(p []byte) (int, error) {
-	n, err := b.ReadCloser.Read(p)
-	if err != nil {
-		b.cancel()
-	}
-	return n, err
-}
-
-func (b *busyAttemptBody) Close() error {
-	err := b.ReadCloser.Close()
-	b.cancel()
-	return err
-}
 
 // RetryBusyWithBudget bounds when another retry may start after a refusal.
 func RetryBusyWithBudget(c *http.Client, budget time.Duration) {
@@ -98,14 +34,6 @@ type busyTransport struct {
 	stream bool
 }
 
-// BusyStreamError lets a tail reconnect without treating capacity as a rule refusal.
-type BusyStreamError struct {
-	Message    string
-	RetryAfter time.Duration
-}
-
-func (e *BusyStreamError) Error() string { return e.Message }
-
 func (t busyTransport) CloseIdleConnections() {
 	if closer, ok := t.next.(interface{ CloseIdleConnections() }); ok {
 		closer.CloseIdleConnections()
@@ -113,7 +41,7 @@ func (t busyTransport) CloseIdleConnections() {
 }
 
 func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	var retry *httpurl.BusyRetry
+	var retry *BusyRetry
 	request := req
 	for {
 		resp, err := t.next.RoundTrip(request)
@@ -125,7 +53,7 @@ func (t busyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return resp, nil
 		}
 		if retry == nil {
-			retry = httpurl.NewBusyRetry(t.budget)
+			retry = NewBusyRetry(t.budget)
 		}
 		if code != api.CodeServerBusy {
 			encoded, _ := json.Marshal(api.NewError(http.StatusTooManyRequests, api.CodeServerBusy, message, "", nil).Envelope())

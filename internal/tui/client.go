@@ -110,8 +110,7 @@ var (
 		if err != nil {
 			return nil, err
 		}
-		hc, err := clientpkg.NewHTTPClient(ctx, endpoint, clientpkg.Opts{Timeout: defaultHTTPTimeout})
-		return retryBusyTUIClient(hc, err, clientOptsNormal)
+		return clientpkg.NewHTTPClient(ctx, endpoint, clientpkg.Opts{Timeout: defaultHTTPTimeout})
 	}
 	tuiClientLogPathForTUI = func() (string, error) {
 		dir, err := config.RuntimeDir()

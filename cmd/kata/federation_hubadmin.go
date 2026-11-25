@@ -277,6 +277,6 @@ func hubAdminClient(ctx context.Context, a hubAdminAuth) (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	clientpkg.RetryBusyPerAttempt(hc, envHTTPTimeout(clientpkg.BusyRetryBudget))
+	RetryBusyWithBudget(hc, envHTTPTimeout(BusyRetryBudget))
 	return hc, nil
 }

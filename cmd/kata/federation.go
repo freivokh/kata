@@ -1475,7 +1475,6 @@ var fetchFederationJoinMetadata = func(ctx context.Context, bundle federationJoi
 	if err != nil {
 		return api.ProjectFederationBody{}, err
 	}
-	client.RetryBusy(envHTTPTimeout(clientpkg.BusyRetryBudget))
 	return client.ProjectFederation(ctx, bundle.HubProjectID)
 }
 

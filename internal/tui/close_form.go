@@ -12,7 +12,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"go.kenn.io/kata/internal/api"
-	"go.kenn.io/kata/internal/client"
 )
 
 type authCapabilitiesMsg struct {
@@ -192,7 +191,7 @@ func (m Model) openCloseForm(target formTarget, attachments []closeAttachment) M
 
 func dispatchLegacyClose(apiClient KataAPI, target formTarget, actor string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), client.BusyRetryBudget)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		resp, err := apiClient.Close(ctx, target.projectID, target.issueShortID, actor)
 		return mutationDoneMsg{
@@ -308,7 +307,7 @@ func dispatchFormClose(
 				err: fmt.Errorf("TUI client does not support evidence-bearing close"),
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), client.BusyRetryBudget)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		resp, err := closer.CloseWithEvidence(ctx, target.projectID, target.issueShortID, in)
 		return mutationDoneMsg{
