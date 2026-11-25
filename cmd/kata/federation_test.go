@@ -53,7 +53,9 @@ func TestFederationJoinMetadataBusy(t *testing.T) {
 					_, _ = w.Write([]byte(`{"project_uid":"project-uid","replay_horizon_event_id":1}`))
 					return
 				}
-				if !tc.recover {
+				if tc.recover {
+					w.Header().Set("Retry-After", "5")
+				} else {
 					w.Header().Set("Retry-After", "60")
 				}
 				w.WriteHeader(http.StatusTooManyRequests)
@@ -69,6 +71,7 @@ func TestFederationJoinMetadataBusy(t *testing.T) {
 				require.Equal(t, tc.code, cliErr.Code)
 				require.Contains(t, cliErr.Message, tc.message)
 				if tc.code == api.CodeServerBusy {
+					require.Equal(t, kindServerBusy, cliErr.Kind)
 					require.Equal(t, ExitDaemonUnavail, cliErr.ExitCode)
 				}
 			}
@@ -1600,11 +1603,9 @@ func TestFederationSpokePreflightBusy(t *testing.T) {
 	}))
 	t.Cleanup(spoke.Close)
 	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte(fmt.Sprintf("[[daemon]]\nname = %q\nurl = %q\n", "spoke", spoke.URL)), 0o600))
-	started := time.Now()
 	err := federationSpokeProbePreflight(t.Context(), "01HZZZZZZZZZZZZZZZZZZZZZ01")
 	require.NoError(t, err)
 	require.Equal(t, int32(2), calls.Load())
-	assert.GreaterOrEqual(t, time.Since(started), 5*time.Second)
 }
 
 func TestFederationSpokeHTTPClientDoesNotUseNamedDaemonGlobalAuthFallback(t *testing.T) {

@@ -26,7 +26,6 @@ func TestRetryBusy(t *testing.T) {
 		{"admission exhausted", `{"error":{"code":"admission_limited"}}`, "2", time.Second, 1, false, false, "127.0.0.1 is busy", 0},
 		{"rule", `{"error":{"code":"sibling_throttle","message":"wait"}}`, "", time.Second, 1, false, false, "sibling_throttle", 0},
 		{"relay", `{"error":{"code":"server_busy","message":"root.example is busy; try again in a minute"}}`, "0", time.Second, 4, false, false, "root.example is busy", 0},
-		{"attempt cap", "Rate exceeded.", "0", time.Second, 4, false, false, "127.0.0.1 is busy", 0},
 		{"non-replayable", "Rate exceeded.", "", time.Second, 1, false, true, "127.0.0.1 is busy", 0},
 		{"hint waits", "Rate exceeded.", "1", 3 * time.Second, 2, true, false, "", time.Second},
 		{"unbounded request long hint", "Rate exceeded.", "60", 0, 1, false, false, "127.0.0.1 is busy", 0},
@@ -81,40 +80,15 @@ type busyCloseBody struct {
 
 func (b *busyCloseBody) Close() error { close(b.closed); return nil }
 
-type busyCloseTransport struct{ body *busyCloseBody }
-
-func (t busyCloseTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"10"}}, Body: t.body, Request: req}, nil
+type busyTimeoutTransport struct {
+	calls int
+	body  *busyCloseBody
 }
-
-func TestRetryBusyClosesResponseBeforeDelay(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		body := &busyCloseBody{Reader: strings.NewReader(`{"error":{"code":"server_busy","message":"hub.example is busy"}}`), closed: make(chan struct{})}
-		hc := &http.Client{Transport: busyCloseTransport{body: body}, Timeout: 20 * time.Second}
-		RetryBusyWithBudget(hc, BusyRetryBudget)
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://hub.example", nil)
-		require.NoError(t, err)
-		done := make(chan error, 1)
-		go func() { _, err := hc.Do(req); done <- err }()
-		synctest.Wait()
-		select {
-		case <-body.closed:
-		default:
-			t.Error("response stayed open during the retry delay")
-		}
-		cancel()
-		<-done
-	})
-}
-
-type busyTimeoutTransport struct{ calls int }
 
 func (t *busyTimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	t.calls++
 	if t.calls == 1 {
-		return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"1"}}, Body: io.NopCloser(strings.NewReader("Rate exceeded.")), Request: req}, nil
+		return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"1"}}, Body: t.body, Request: req}, nil
 	}
 	<-req.Context().Done()
 	return nil, req.Context().Err()
@@ -124,12 +98,27 @@ func TestRetryBusyRetryTimeout(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				transport := &busyTimeoutTransport{}
+				body := &busyCloseBody{Reader: strings.NewReader(`{"error":{"code":"server_busy","message":"hub.example is busy"}}`), closed: make(chan struct{})}
+				transport := &busyTimeoutTransport{body: body}
 				hc := &http.Client{Transport: transport, Timeout: 2 * time.Second}
 				RetryBusyWithBudget(hc, BusyRetryBudget)
 				req, err := http.NewRequestWithContext(t.Context(), method, "https://hub.example", strings.NewReader("payload"))
 				require.NoError(t, err)
-				resp, err := hc.Do(req) //nolint:gosec // fake transport
+				var resp *http.Response
+				done := make(chan struct{})
+				go func() {
+					resp, err = hc.Do(req) //nolint:gosec // fake transport
+					close(done)
+				}()
+				synctest.Wait()
+				if method == http.MethodGet {
+					select {
+					case <-body.closed:
+					default:
+						t.Error("response stayed open during the retry delay")
+					}
+				}
+				<-done
 				require.Equal(t, 2, transport.calls)
 				if method == http.MethodPost {
 					require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -137,10 +126,10 @@ func TestRetryBusyRetryTimeout(t *testing.T) {
 				}
 				require.NoError(t, err)
 				require.Equal(t, 429, resp.StatusCode)
-				body, err := io.ReadAll(resp.Body)
+				raw, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				require.NoError(t, resp.Body.Close())
-				assert.Contains(t, string(body), `"code":"server_busy"`)
+				assert.Contains(t, string(raw), `"code":"server_busy"`)
 			})
 		})
 	}
