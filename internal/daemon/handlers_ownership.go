@@ -510,18 +510,11 @@ func syncForwardedAssignmentDestination(
 
 func assignmentClaimForwardError(err error) error {
 	if statusErr, ok := errors.AsType[*claimHubStatusError](err); ok {
-		if forwarded := assignmentClaimEnvelopeError(statusErr); forwarded != nil {
-			return forwarded
+		var envelope api.ErrorEnvelope
+		if json.Unmarshal([]byte(statusErr.Body), &envelope) == nil && envelope.Error.Code != "" {
+			return api.NewError(statusErr.StatusCode, envelope.Error.Code, envelope.Error.Message,
+				envelope.Error.Hint, map[string]any(envelope.Error.Data))
 		}
 	}
 	return claimForwardError(err)
-}
-
-func assignmentClaimEnvelopeError(statusErr *claimHubStatusError) error {
-	var envelope api.ErrorEnvelope
-	if json.Unmarshal([]byte(statusErr.Body), &envelope) == nil && envelope.Error.Code != "" {
-		return api.NewError(statusErr.StatusCode, envelope.Error.Code, envelope.Error.Message,
-			envelope.Error.Hint, map[string]any(envelope.Error.Data))
-	}
-	return nil
 }

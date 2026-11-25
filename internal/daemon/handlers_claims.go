@@ -813,11 +813,6 @@ func claimForwardError(err error) error {
 		if statusErr.StatusCode == http.StatusServiceUnavailable && hubStatusErrorCode(statusErr) == "federation_offline" {
 			return api.NewError(http.StatusServiceUnavailable, "federation_offline", statusErr.Error(), "", nil)
 		}
-		if statusErr.StatusCode == http.StatusTooManyRequests {
-			if forwarded := assignmentClaimEnvelopeError(statusErr); forwarded != nil {
-				return forwarded
-			}
-		}
 		return api.NewError(statusErr.StatusCode, "hub_claim_failed", statusErr.Error(), "", nil)
 	}
 	return api.NewError(http.StatusServiceUnavailable, "federation_offline", err.Error(), "", nil)
