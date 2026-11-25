@@ -40,7 +40,7 @@ func TestHubAdminClientRetriesFiveSecondHint(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := hc.Do(req) //nolint:gosec // fake transport
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { assert.NoError(t, resp.Body.Close()) }()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		require.Equal(t, 2, transport.calls)
 	})
