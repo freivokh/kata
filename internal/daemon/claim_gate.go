@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -234,8 +235,8 @@ func hubStatusErrorCode(err *claimHubStatusError) string {
 	if err == nil {
 		return ""
 	}
-	env, parseErr := api.ParseErrorEnvelope([]byte(err.Body))
-	if parseErr != nil {
+	var env api.ErrorEnvelope
+	if json.Unmarshal([]byte(err.Body), &env) != nil {
 		return ""
 	}
 	return strings.TrimSpace(env.Error.Code)

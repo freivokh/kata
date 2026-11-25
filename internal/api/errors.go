@@ -30,16 +30,10 @@ type ErrorEnvelope struct {
 
 const CodeServerBusy = "server_busy"
 
-// ParseErrorEnvelope decodes the error body returned by a daemon.
-func ParseErrorEnvelope(body []byte) (ErrorEnvelope, error) {
-	var envelope ErrorEnvelope
-	err := json.Unmarshal(body, &envelope)
-	return envelope, err
-}
-
 // BusyRefusal classifies a 429 body and returns its busy message and code.
 func BusyRefusal(body []byte, host string) (string, string, bool) {
-	envelope, _ := ParseErrorEnvelope(body)
+	var envelope ErrorEnvelope
+	_ = json.Unmarshal(body, &envelope)
 	switch strings.TrimSpace(envelope.Error.Code) {
 	case CodeServerBusy:
 		return envelope.Error.Message, envelope.Error.Code, true

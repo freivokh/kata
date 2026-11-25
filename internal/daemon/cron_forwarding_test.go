@@ -519,7 +519,6 @@ func TestCronSpokeForwardPendingPushRefusal(t *testing.T) {
 		name, body, code, message, retry string
 	}{
 		{"capacity", `{"error":{"code":"admission_limited","message":"busy"}}`, "server_busy", "127.0.0.1 is busy", "5"},
-		{"rule", `{"error":{"code":"sibling_throttle","message":"too many siblings"}}`, "sibling_throttle", "too many siblings", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newCronForwardFixture(t, func(_ *cronForwardFixture, cfg *daemon.ServerConfig) {

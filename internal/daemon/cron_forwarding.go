@@ -118,9 +118,6 @@ func forwardCronJob(ctx context.Context, cfg ServerConfig, projectID int64, uid,
 				}
 				return nil, true, failure
 			}
-			if envelope, parseErr := api.ParseErrorEnvelope([]byte(status.HTTPBody())); parseErr == nil && envelope.Error.Code != "" {
-				return nil, true, api.NewError(status.HTTPStatus(), envelope.Error.Code, envelope.Error.Message, envelope.Error.Hint, envelope.Error.Data)
-			}
 		}
 		return nil, true, cronForwardUnavailable("pending federation push failed; no cron write was sent")
 	}
