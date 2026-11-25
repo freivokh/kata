@@ -42,8 +42,10 @@ func (e *HubStatusError) Is(target error) bool {
 // HTTPStatus exposes the hub response code to outcome classification.
 func (e *HubStatusError) HTTPStatus() int { return e.StatusCode }
 
-// HTTPBody and HTTPRetryAfter expose the hub's refusal to callers.
-func (e *HubStatusError) HTTPBody() string              { return e.Body }
+// HTTPBody returns the hub's refusal body.
+func (e *HubStatusError) HTTPBody() string { return e.Body }
+
+// HTTPRetryAfter returns the hub's retry delay.
 func (e *HubStatusError) HTTPRetryAfter() time.Duration { return e.RetryAfter }
 
 func (e *HubStatusError) Error() string {
